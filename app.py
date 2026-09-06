@@ -1900,7 +1900,11 @@ def _optimize_image_bytes(data: bytes, ext: str) -> bytes:
 async def image_cache(url: str):
     if not url.startswith("http"):
         return JSONResponse({"error": "invalid url"}, status_code=400)
-    if _is_private_url(url):
+    # DNS 覆盖（hosts 映射 / DoH）先于私有地址检查：被污染域名系统解析可能
+    # 指向私有/保留地址，若管理员已显式映射则信任映射、跳过该检查
+    _settings0 = load_settings()
+    _check_url, _, _pinned0 = _apply_dns_override(url, {}, _settings0)
+    if not _pinned0 and _is_private_url(_check_url):
         return JSONResponse({"error": "private url not allowed"}, status_code=400)
     key = hashlib.sha256(url.encode()).hexdigest()[:16]
     ext = Path(url.split("?")[0]).suffix or ".jpg"
@@ -1927,8 +1931,7 @@ async def image_cache(url: str):
         proxies = None
         if proxy_url:
             proxies = {"http": proxy_url, "https": proxy_url}
-        settings = load_settings()
-        req_url, req_headers, pinned = _apply_dns_override(url, headers, settings)
+        req_url, req_headers, pinned = _apply_dns_override(url, headers, _settings0)
 
         def _fetch():
             if pinned:
