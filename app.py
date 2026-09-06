@@ -5040,20 +5040,25 @@ async def play_probe(target_id: int, target_type: str = "video", request: Reques
             ).fetchone()
             if expired:
                 return {
-                    "primary": {"url": expired["url"], "source": "缓存回退", "score": 0, "url_type": urls[0].get("url_type", "stream")},
+                    "primary": {"url": expired["url"], "source": "缓存回退", "score": 0, "url_type": urls[0].get("url_type", "stream"), "proxied": _proxied_for(expired["url"])},
                     "backups": [],
                     "fallback": True,
                 }
             return {
-                "primary": {"url": urls[0]["url"], "source": urls[0].get("source", "默认"), "score": 0, "url_type": urls[0].get("url_type", "stream")},
+                "primary": {"url": urls[0]["url"], "source": urls[0].get("source", "默认"), "score": 0, "url_type": urls[0].get("url_type", "stream"), "proxied": _proxied_for(urls[0]["url"])},
                 "backups": [],
                 "fallback": True,
             }
 
         primary, backups, rest = quick.rank_lines(all_results)
 
+        _settings_pl = load_settings()
+        def _proxied_for(u: str) -> bool:
+            return bool(_settings_pl.get("proxy", "")) and _site_proxy_enabled(u, _settings_pl)
+
         def _build_line(result: quick.ProbeResult):
             u = next((x for x in urls if x["url"] == result.url), {})
+            proxied = _proxied_for(result.url)
             return {
                 "url": result.url,
                 "source": u.get("source", ""),
@@ -5063,6 +5068,7 @@ async def play_probe(target_id: int, target_type: str = "video", request: Reques
                 "latency_ms": round(result.latency_ms, 1),
                 "rate_mbps": round(result.rate_mbps, 2),
                 "score": round(result.total_score, 3),
+                "proxied": proxied,
             }
 
         return {
@@ -7660,6 +7666,9 @@ def _create_download_task(data):
             "error": "",
             "log": [],
             "created_at": datetime.now().isoformat(timespec="seconds"),
+            "series_title": str(data.get("series_title") or "").strip(),
+            "season_title": str(data.get("season_title") or "").strip(),
+            "ep_number": data.get("ep_number") if isinstance(data.get("ep_number"), int) else None,
         }
         tasks.insert(0, task)
         _save_tasks(tasks)

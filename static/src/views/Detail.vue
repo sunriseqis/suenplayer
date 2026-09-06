@@ -61,9 +61,12 @@
             <svg width="16" height="16" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
             {{ isSeries ? '继续观看' : '立即播放' }}
           </button>
-          <button class="btn btn-secondary dl-btn" :disabled="dlBusy" @click="startDownload" title="创建下载任务">
+          <button class="btn btn-secondary dl-btn" :disabled="dlBusy" @click="startDownload" :title="isSeries ? '选择集数批量下载' : '创建下载任务'">
+            <template v-if="!isSeries || !dlMode">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             下载
+            </template>
+            <template v-else>选择中…</template>
           </button>
           <button class="btn btn-secondary" style="width: 120px; height: 44px;" @click="toggleFav">
             <svg width="14" height="14" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" :fill="isFav ? 'var(--accent)' : 'var(--text-secondary)'"/></svg>
@@ -106,8 +109,15 @@
 
       <!-- 集列表控制栏 -->
       <div class="episode-controls" v-if="activeSeason?.episodes?.length">
-        <span class="ep-count">共 {{ activeSeason.episodes.length }} 集</span>
-        <button class="sort-toggle" @click="toggleEpisodeSort">
+        <span class="ep-count" v-if="!dlMode">共 {{ activeSeason.episodes.length }} 集</span>
+        <span class="ep-count" v-else>已选 {{ dlSelected.size }} 集</span>
+        <div class="dl-select-actions" v-if="dlMode">
+          <button class="sort-toggle" @click="selectAllDl">全选本季</button>
+          <button class="sort-toggle" @click="invertDl">反选</button>
+          <button class="sort-toggle dl-confirm" :disabled="!dlSelected.size" @click="confirmDl">确定下载 ({{ dlSelected.size }})</button>
+          <button class="sort-toggle" @click="cancelDl">取消</button>
+        </div>
+        <button class="sort-toggle" v-else @click="toggleEpisodeSort">
           {{ episodeDesc ? '倒序' : '正序' }} <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
       </div>
@@ -116,20 +126,16 @@
       <div class="episode-list" v-if="activeSeason?.episodes?.length">
         <div
           class="episode-item"
+          :class="{ 'dl-selected': dlMode && dlSelected.has(ep.id) }"
           v-for="ep in sortedEpisodes"
           :key="ep.id"
-          @click="playEpisode(ep)"
+          @click="dlMode ? toggleDlSelect(ep) : playEpisode(ep)"
         >
           <div class="ep-still" v-if="ep.ep_still">
             <img :src="$imgUrl(ep.ep_still)" @error="$imgFallback" loading="lazy" />
           </div>
           <div class="ep-info">
-            <div class="ep-title">
-              {{ epDisplayTitle(ep) }}
-              <button class="ep-dl-btn" :disabled="dlBusy" @click.stop="downloadEpisode(ep)" title="下载本集">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              </button>
-            </div>
+            <div class="ep-title">{{ epDisplayTitle(ep) }}</div>
             <div class="ep-meta" v-if="epMeta(ep)">{{ epMeta(ep) }}</div>
             <div class="ep-overview" v-if="ep.ep_overview">{{ ep.ep_overview }}</div>
             <div class="ep-progress" v-if="epProgress[ep.id]">
@@ -271,62 +277,85 @@ function seasonEpCount(s) {
   return s.episodes?.length || s.episode_count || 0
 }
 const dlBusy = ref(false)
-async function startDownload() {
+const dlMode = ref(false)
+const dlSelected = ref(new Set())
+
+function startDownload() {
   if (!item.value || dlBusy.value) return
-  dlBusy.value = true
-  try {
-    if (isSeries.value) {
-      // 整季下载：每集各建一个任务
-      const all = (seasons.value || []).flatMap(s => s.episodes || [])
-      if (!all.length) { ui.toast('该剧集没有可下载的集', 'error'); return }
-      if (all.length > 20 && !(await ui.confirm(`共 ${all.length} 集，将创建 ${all.length} 个下载任务，继续？`))) return
-      let okN = 0
-      for (const ep of all) {
-        try {
-          const r = await store.createDownload({
-            target_type: 'episode', target_id: ep.id,
-            project_id: item.value.project_id,
-            title: `${item.value.title} - ${epDisplayTitle(ep)}`,
-          })
-          if (!r.error) okN += 1
-        } catch {}
-      }
-      ui.toast(`已创建 ${okN}/${all.length} 个下载任务`, okN ? 'success' : 'error')
-      if (okN) router.push('/downloads')
-    } else {
-      const r = await store.createDownload({
-        target_type: 'video',
-        target_id: item.value.id,
-        bangou: item.value.bangou,
-        project_id: item.value.project_id,
-        title: item.value.title,
-        site: item.value.site || '',
-      })
+  if (!isSeries.value) {
+    // 电影：直接创建任务
+    dlBusy.value = true
+    store.createDownload({
+      target_type: 'video',
+      target_id: item.value.id,
+      bangou: item.value.bangou,
+      project_id: item.value.project_id,
+      title: item.value.title,
+      site: item.value.site || '',
+    }).then(r => {
       if (r.error) throw new Error(r.error)
       ui.toast('下载任务已创建，可在「下载任务」页查看进度', 'success')
       router.push('/downloads')
-    }
-  } catch (e) {
-    ui.toast(e.message || '创建下载任务失败', 'error')
+    }).catch(e => ui.toast(e.message || '创建下载任务失败', 'error')).finally(() => { dlBusy.value = false })
+    return
   }
-  dlBusy.value = false
+  // 剧集：进入下载选择模式
+  dlMode.value = true
+  dlSelected.value = new Set()
 }
-async function downloadEpisode(ep) {
-  if (dlBusy.value) return
+
+function toggleDlSelect(ep) {
+  const s = new Set(dlSelected.value)
+  s.has(ep.id) ? s.delete(ep.id) : s.add(ep.id)
+  dlSelected.value = s
+}
+
+function selectAllDl() {
+  const s = new Set(dlSelected.value)
+  ;(activeSeason.value?.episodes || []).forEach(ep => s.add(ep.id))
+  dlSelected.value = s
+}
+
+function invertDl() {
+  const s = new Set(dlSelected.value)
+  ;(activeSeason.value?.episodes || []).forEach(ep => s.has(ep.id) ? s.delete(ep.id) : s.add(ep.id))
+  dlSelected.value = s
+}
+
+function cancelDl() {
+  dlMode.value = false
+  dlSelected.value = new Set()
+}
+
+async function confirmDl() {
+  if (dlBusy.value || !dlSelected.value.size) return
   dlBusy.value = true
   try {
-    const r = await store.createDownload({
-      target_type: 'episode',
-      target_id: ep.id,
-      project_id: item.value.project_id,
-      title: `${item.value.title} - ${epDisplayTitle(ep)}`,
-    })
-    if (r.error) throw new Error(r.error)
-    ui.toast(`已创建下载：${epDisplayTitle(ep)}`, 'success')
-  } catch (e) {
-    ui.toast(e.message || '创建下载任务失败', 'error')
+    // 收集所选集的季信息（跨季选择同样支持）
+    const epMap = new Map()
+    ;(seasons.value || []).forEach(sn => (sn.episodes || []).forEach(ep => epMap.set(ep.id, { ep, season: sn })))
+    let okN = 0
+    for (const id of dlSelected.value) {
+      const hit = epMap.get(id)
+      if (!hit) continue
+      try {
+        const r = await store.createDownload({
+          target_type: 'episode', target_id: hit.ep.id,
+          project_id: item.value.project_id,
+          title: `${item.value.title} - ${epDisplayTitle(hit.ep)}`,
+          series_title: item.value.title,
+          season_title: hit.season.season_title || (hit.season.season_number ? `第 ${hit.season.season_number} 季` : ''),
+          ep_number: hit.ep.ep_number,
+        })
+        if (!r.error) okN += 1
+      } catch {}
+    }
+    ui.toast(`已创建 ${okN}/${dlSelected.value.size} 个下载任务`, okN ? 'success' : 'error')
+    if (okN) router.push('/downloads')
+    cancelDl()
+  } finally {
+    dlBusy.value = false
   }
-  dlBusy.value = false
 }
 function epMeta(ep) {
   const parts = []
@@ -588,6 +617,10 @@ async function saveTags() {
 .detail { position: relative; }
 .detail .btn-back, .detail-content, .season-section { position: relative; z-index: 1; }
 .dl-btn { height: 44px; }
+.episode-item.dl-selected { outline: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.dl-select-actions { display: flex; gap: 8px; margin-left: auto; }
+.dl-confirm { background: var(--accent); color: var(--text-inverse); font-weight: 600; }
+.dl-confirm:disabled { opacity: 0.5; }
 .ep-dl-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; margin-left: 6px; padding: 0;

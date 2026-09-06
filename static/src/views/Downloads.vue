@@ -13,7 +13,7 @@
         </select>
         <!-- C2：一键清理已完成 -->
         <button class="btn btn-secondary btn-sm" @click="clearDone"
-                :disabled="clearing || !items.some(t => t.status === 'done')">清理已完成</button>
+                :disabled="clearing || !items.some(t => row.t.status === 'done')">清理已完成</button>
         <button class="btn btn-secondary btn-sm" @click="refresh" :disabled="loading">刷新</button>
       </div>
     </div>
@@ -28,60 +28,72 @@
     </div>
 
     <div v-else class="task-list">
-      <div v-for="t in filteredItems" :key="t.id" class="task-card">
+      <template v-for="row in displayRows" :key="row.type === 'group' ? row.key : row.t.id">
+        <div v-if="row.type === 'group'" class="dl-group-header" @click="toggleGroup(row.key)">
+          <svg class="chev" :class="{ open: !collapsedGroups[row.key] }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          <span class="dl-group-title">{{ row.series }}</span>
+          <span class="dl-group-season" v-if="row.season">· {{ row.season }}</span>
+          <span class="dl-group-count">{{ row.tasks.length }} 集</span>
+          <span class="dl-group-status">{{ groupStatus(row.tasks) }}</span>
+        </div>
+        <div v-else class="task-card">
         <div class="task-main">
           <!-- B2: 已完成任务展示封面缩略图（后端懒生成 poster，加载失败回退占位），辅助快速识别内容 -->
-          <div v-if="t.status === 'done'" class="task-thumb">
-            <img v-if="!thumbFailed[t.id]" :src="`/api/download/${t.id}/poster`" loading="lazy"
-                 alt="" @error="thumbFailed[t.id] = true" />
+          <div v-if="row.t.status === 'done'" class="task-thumb">
+            <img v-if="!thumbFailed[row.t.id]" :src="`/api/download/${row.t.id}/poster`" loading="lazy"
+                 alt="" @error="thumbFailed[row.t.id] = true" />
             <div v-else class="task-thumb-fallback">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><polygon points="10 8 16 12 10 16"/></svg>
             </div>
           </div>
           <div class="task-info">
-            <div class="task-title" :title="t.title">{{ t.title }}</div>
+            <div class="task-title" :title="row.t.title">
+              <span class="ep-no" v-if="row.t.ep_number">第{{ row.t.ep_number }}集</span>
+              {{ row.t.title }}
+            </div>
             <div class="task-meta">
-              <span class="badge" :class="'badge-' + t.format">{{ t.format === 'm3u8' ? 'M3U8' : 'MP4' }}</span>
-              <span v-if="t.site" class="task-site">{{ t.site }}</span>
-              <span class="task-time">{{ fmtTime(t.created_at) }}</span>
+              <span class="badge" :class="'badge-' + row.t.format">{{ row.t.format === 'm3u8' ? 'M3U8' : 'MP4' }}</span>
+              <span v-if="row.t.site" class="task-site">{{ row.t.site }}</span>
+              <span class="task-time">{{ fmtTime(row.t.created_at) }}</span>
             </div>
           </div>
           <div class="task-actions">
-            <template v-if="isRunning(t.status)">
-              <button class="btn btn-danger btn-sm" @click="cancelTask(t)">取消</button>
+            <template v-if="isRunning(row.t.status)">
+              <button class="btn btn-danger btn-sm" @click="cancelTask(row.t)">取消</button>
             </template>
-            <template v-else-if="t.status === 'done'">
-              <button class="btn btn-primary btn-sm" @click="togglePlayTask(t)">播放</button>
-              <a class="btn btn-secondary btn-sm" :href="`/api/download/${t.id}/file`">取回</a>
-              <button class="btn btn-danger btn-sm" @click="deleteTask(t)">删除</button>
+            <template v-else-if="row.t.status === 'done'">
+              <button class="btn btn-primary btn-sm" @click="togglePlayTask(row.t)">播放</button>
+              <a class="btn btn-secondary btn-sm" :href="`/api/download/${row.t.id}/file`">取回</a>
+              <button class="btn btn-danger btn-sm" @click="deleteTask(row.t)">删除</button>
             </template>
             <template v-else>
-              <button v-if="t.status === 'error' || t.status === 'canceled'"
-                      class="btn btn-secondary btn-sm" @click="retryTask(t)">重试</button>
-              <button class="btn btn-danger btn-sm" @click="deleteTask(t)">删除</button>
+              <button v-if="row.t.status === 'error' || row.t.status === 'canceled'"
+                      class="btn btn-secondary btn-sm" @click="retryTask(row.t)">重试</button>
+              <button class="btn btn-danger btn-sm" @click="deleteTask(row.t)">删除</button>
             </template>
           </div>
         </div>
 
         <div class="task-progress-row">
           <div class="progress-track">
-            <div class="progress-fill" :class="statusClass(t.status)"
-                 :style="{ width: (t.progress || 0) + '%' }"></div>
+            <div class="progress-fill" :class="statusClass(row.t.status)"
+                 :style="{ width: (row.t.progress || 0) + '%' }"></div>
           </div>
-          <span class="progress-text">{{ statusText(t) }}</span>
+          <span class="progress-text">{{ statusText(row.t) }}</span>
         </div>
 
-        <div v-if="t.status === 'error'" class="task-error">{{ t.message || t.error }}</div>
+        <div v-if="row.t.status === 'error'" class="task-error">{{ row.t.message || row.t.error }}</div>
 
         <!-- 下载日志（可折叠） -->
-        <div v-if="(t.log || []).length" class="task-log">
-          <button class="log-toggle" @click="toggleLog(t.id)">
-            <svg :class="{ open: logOpen === t.id }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
-            下载日志 ({{ t.log.length }})
+        <div v-if="(row.t.log || []).length" class="task-log">
+          <button class="log-toggle" @click="toggleLog(row.t.id)">
+            <svg :class="{ open: logOpen === row.t.id }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+            下载日志 ({{ row.t.log.length }})
           </button>
-          <pre v-if="logOpen === t.id" class="log-body">{{ t.log.join('\n') }}</pre>
+          <pre v-if="logOpen === row.t.id" class="log-body">{{ row.t.log.join('\n') }}</pre>
         </div>
       </div>
+      </template>
     </div>
 
     <!-- B: 复用统一播放器，本地离线内容直接播放（localUrl 模式，跳过测速选线）：
@@ -122,6 +134,41 @@ const filteredItems = computed(() => {
   if (statusFilter.value === 'running') return items.value.filter(t => t.status === 'pending' || t.status === 'running')
   return items.value.filter(t => t.status === statusFilter.value)
 })
+
+// 剧集任务分组展示：series_title+season_title 归组，组头可折叠
+const collapsedGroups = ref({})
+const displayRows = computed(() => {
+  const rows = []
+  const groups = new Map()
+  const flat = []
+  for (const t of filteredItems.value) {
+    if (t.series_title) {
+      const key = t.series_title + '||' + (t.season_title || '')
+      if (!groups.has(key)) groups.set(key, { type: 'group', key, series: t.series_title, season: t.season_title || '', tasks: [] })
+      groups.get(key).tasks.push({ type: 'task', t })
+    } else {
+      flat.push({ type: 'task', t })
+    }
+  }
+  for (const g of groups.values()) {
+    rows.push(g)
+    if (!collapsedGroups.value[g.key]) rows.push(...g.tasks)
+  }
+  rows.push(...flat)
+  return rows
+})
+function toggleGroup(key) {
+  collapsedGroups.value = { ...collapsedGroups.value, [key]: !collapsedGroups.value[key] }
+}
+function groupStatus(tasks) {
+  const running = tasks.filter(t => t.status === 'running' || t.status === 'pending').length
+  const done = tasks.filter(t => t.status === 'done').length
+  const err = tasks.filter(t => t.status === 'error').length
+  if (running) return `${running} 个进行中`
+  if (done === tasks.length) return '全部完成'
+  if (err) return `${err} 个失败`
+  return `${done}/${tasks.length} 完成`
+}
 
 async function refresh() {
   if (refreshInFlight) return
@@ -164,7 +211,7 @@ function statusClass(s) {
 function statusText(t) {
   if (t.status === 'pending') return '等待中'
   if (t.status === 'running') return `${t.progress || 0}%` + (t.message ? ` · ${t.message}` : '')
-  if (t.status === 'done') return '已完成' + (t.size ? `（${fmtSize(t.size)}）` : '')
+  if (row.t.status === 'done') return '已完成' + (t.size ? `（${fmtSize(t.size)}）` : '')
   if (t.status === 'canceled') return '已取消'
   if (t.status === 'error') return '失败'
   return t.status
@@ -203,7 +250,7 @@ async function deleteTask(t) {
 }
 // C2：一键清理已完成任务（复用已有的单任务删除接口）
 async function clearDone() {
-  const doneList = items.value.filter(t => t.status === 'done')
+  const doneList = items.value.filter(t => row.t.status === 'done')
   if (!doneList.length) return
   const yes = await ui.confirm(`确定清理全部 ${doneList.length} 个已完成任务？`, { danger: true })
   if (!yes) return
@@ -300,4 +347,17 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
   white-space: pre-wrap; word-break: break-all;
   font-family: var(--font-mono);
 }
+.dl-group-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-radius: var(--radius-md);
+  background: var(--bg-input); cursor: pointer; user-select: none;
+}
+.dl-group-header .chev { transition: transform .2s; }
+.dl-group-header .chev.open { transform: rotate(180deg); }
+.dl-group-title { font-weight: 600; color: var(--text-primary); }
+.dl-group-season { color: var(--text-secondary); font-size: var(--text-sm); }
+.dl-group-count { font-size: var(--text-xs); color: var(--text-muted); padding: 1px 8px; border-radius: 99px; background: var(--recessed); }
+.dl-group-status { margin-left: auto; font-size: var(--text-xs); color: var(--text-muted); }
+.task-list .task-card { margin-bottom: 8px; }
+.ep-no { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: var(--radius-sm); background: var(--recessed); color: var(--text-secondary); font-size: var(--text-xs); }
 </style>

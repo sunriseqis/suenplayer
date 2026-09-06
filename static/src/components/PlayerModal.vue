@@ -324,7 +324,10 @@ async function startPlay(line) {
 
   probeState.value = 'ready'
   loading.value = true
-  await loadVideo(line.url)
+  // 站点代理规则命中的线路：经后端 /api/proxy 中转（后端已按规则判定 proxied）
+  let playUrl = line.url
+  if (line.proxied) playUrl = `/api/proxy?url=${encodeURIComponent(line.url)}`
+  await loadVideo(playUrl)
 }
 
 // P2-1: 非 HLS 分支的 error 监听器用具名函数，可摘除、天然去重
