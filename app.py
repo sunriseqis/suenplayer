@@ -3239,17 +3239,31 @@ def _rebuild_auto_categories(db, project_id: int) -> None:
         key = ((region or "").strip() or "通用", (group or "").strip() or "默认")
         counts[key] = counts.get(key, 0) + 1
 
+    # 快照既有排序：重建后同名分类沿用用户整理过的顺序，新增分类追加在后
+    rows = db.execute(
+        "SELECT name, parent_id, level, sort_order FROM categories WHERE project_id = ?",
+        (project_id,),
+    ).fetchall()
+    id2name = {r["id"]: r["name"] for r in rows}
+    l1_order = {r["name"]: r["sort_order"] for r in rows if r["level"] == 1}
+    l2_order = {(id2name.get(r["parent_id"]), r["name"]): r["sort_order"]
+                for r in rows if r["level"] == 2}
+
     db.execute("DELETE FROM categories WHERE project_id = ?", (project_id,))
     if not counts:
         return
+
+    next_order = (max([*l1_order.values(), *l2_order.values()]) + 1) if (l1_order or l2_order) else 1
 
     regions = sorted(
         {r for r, _ in counts},
         key=lambda r: (-sum(c for (rr, _g), c in counts.items() if rr == r), r),
     )
-    order = 0
     for region in regions:
-        order += 1
+        order = l1_order.get(region)
+        if order is None:
+            order = next_order
+            next_order += 1
         cur = db.execute(
             "INSERT INTO categories (name, parent_id, level, sort_order, is_user_defined, project_id)"
             " VALUES (?, NULL, 1, ?, 0, ?)",
@@ -3260,11 +3274,14 @@ def _rebuild_auto_categories(db, project_id: int) -> None:
             {g for (r, g) in counts if r == region},
             key=lambda g: -counts[(region, g)],
         ):
-            order += 1
+            o2 = l2_order.get((region, group))
+            if o2 is None:
+                o2 = next_order
+                next_order += 1
             db.execute(
                 "INSERT INTO categories (name, parent_id, level, sort_order, is_user_defined, project_id)"
                 " VALUES (?, ?, 2, ?, 0, ?)",
-                (group, parent_id, order, project_id),
+                (group, parent_id, o2, project_id),
             )
 
 
@@ -5533,6 +5550,8 @@ async def api_import_remote(data: dict = Body(...), user_payload=Depends(require
         })
         for key in ("videos_added", "videos_updated", "live_channels", "live_sources"):
             import_result[key] += sub_result.get(key, 0)
+        if sub_result.get("batch_ids"):
+            import_result.setdefault("batch_ids", []).extend(sub_result["batch_ids"])
         import_result["errors"].extend(sub_result.get("errors", []))
     import_result["method"] = fetched.get("method", "")
     import_result["ok"] = not import_result["errors"]
@@ -5551,6 +5570,10 @@ async def api_import_remote(data: dict = Body(...), user_payload=Depends(require
             )
             if st == "live":
                 db.execute("UPDATE live_channels SET config_id = ? WHERE (config_id IS NULL OR config_id = 0)", (cid,))
+            elif import_result.get("batch_ids"):
+                for b in import_result["batch_ids"]:
+                    db.execute("UPDATE videos SET config_id = ? WHERE import_batch_id = ? AND (config_id IS NULL OR config_id = 0)", (cid, b))
+                    db.execute("UPDATE series SET config_id = ? WHERE import_batch_id = ? AND (config_id IS NULL OR config_id = 0)", (cid, b))
             db.commit()
         import_result["config_id"] = cid
 
@@ -6019,6 +6042,7 @@ def _fetch_remote_to_dir(url: str, dest_dir: Path, proxies: dict | None,
 
     # 2) GitHub web page directory / single file (github.com only): precise
     #    pull via raw/contents API, no clone
+    clone_fallback_error = ""
     is_github = target.get("scheme_host", "").split("//")[-1] in ("github.com", "www.github.com")
     subpath = (target.get("subpath") or "").strip("/")
     if is_github and ttype in ("github_tree", "github_blob"):
@@ -6052,9 +6076,13 @@ def _fetch_remote_to_dir(url: str, dest_dir: Path, proxies: dict | None,
             r = _get(api_url, gh_headers)
             if r.status_code == 404:
                 return {"ok": False, "error": f"未在仓库中找到指定目录: {subpath}"}
+            items = []
             if r.status_code != 200:
-                return {"ok": False, "error": f"查询目录失败 (HTTP {r.status_code}): {r.text[:200]}"}
-            items = r.json()
+                # 403 限流等：不在此终止，落到下方 git clone 回退
+                # （git 协议不受 API 匿名限额影响，匿名亦可 clone 公开仓库）
+                clone_fallback_error = f"查询目录失败 (HTTP {r.status_code}): {r.text[:160]}"
+            else:
+                items = r.json()
             if isinstance(items, dict) and items.get("type") == "file":
                 items = [items]
             if not isinstance(items, list):
@@ -6077,30 +6105,43 @@ def _fetch_remote_to_dir(url: str, dest_dir: Path, proxies: dict | None,
                 dest_file = dest_dir / it["name"]
                 got_file = False
                 last_dl_err = ""
-                for cand_url, cand_headers in candidates:
-                    ok_dl, err_dl = _download_stream_resumable(
-                        cand_url, {**headers, **cand_headers}, dest_file, proxies=proxies)
-                    if not ok_dl:
-                        last_dl_err = err_dl
-                        continue
-                    try:
-                        data = json.loads(dest_file.read_bytes())
-                    except Exception:
+                # 候选链路：先按当前代理设置，直连全部失败且全局代理可用时自动换代理重试
+                attempts_ = [(candidates, proxies)]
+                if not proxies:
+                    _p_url = load_settings().get("proxy", "").strip()
+                    if _p_url:
+                        attempts_.append((candidates, {"http": _p_url, "https": _p_url}))
+                for cand_list, px in attempts_:
+                    for cand_url, cand_headers in cand_list:
                         dest_file.unlink(missing_ok=True)
-                        last_dl_err = "下载内容不是合法 JSON"
-                        continue
-                    if detect_json_type(data) == "unknown":
-                        dest_file.unlink(missing_ok=True)
-                        last_dl_err = f"{it['name']} 不是可识别的媒体 JSON"
-                        continue
-                    got_file = True
-                    break
-                if not got_file:
-                    continue
+                        ok_dl, err_dl = _download_stream_resumable(
+                            cand_url, {**headers, **cand_headers}, dest_file, proxies=px)
+                        if not ok_dl:
+                            last_dl_err = err_dl
+                            continue
+                        try:
+                            data = json.loads(dest_file.read_bytes())
+                        except Exception:
+                            dest_file.unlink(missing_ok=True)
+                            last_dl_err = "下载内容不是合法 JSON"
+                            continue
+                        if detect_json_type(data) == "unknown":
+                            dest_file.unlink(missing_ok=True)
+                            last_dl_err = f"{it['name']} 不是可识别的媒体 JSON"
+                            continue
+                        got_file = True
+                        got += 1
+                        break
+                    if got_file:
+                        break
             if not got:
-                detail = f"（最后错误: {last_dl_err}）" if last_dl_err else ""
-                return {"ok": False, "error": f"目录 {subpath} 下未找到有效的媒体 JSON{detail}"}
-            return {"ok": True, "method": "github_tree", "files": got, "error": ""}
+                # API 列目录失败（限流等）→ 落到 git clone 回退；
+                # 确实列到了目录但内容无效 → 直接报错
+                if not clone_fallback_error:
+                    detail = f"（最后错误: {last_dl_err}）" if last_dl_err else ""
+                    return {"ok": False, "error": f"目录 {subpath} 下未找到有效的媒体 JSON{detail}"}
+            else:
+                return {"ok": True, "method": "github_tree", "files": got, "error": ""}
         except RuntimeError as e:
             return {"ok": False, "error": str(e)}
         except Exception as e:
@@ -6148,6 +6189,14 @@ def _fetch_remote_to_dir(url: str, dest_dir: Path, proxies: dict | None,
     ok, err = _git_clone_shallow(target.get("clean_repo", url), dest,
                                  branch=target.get("branch", ""),
                                  proxies=proxies, token=token)
+    if not ok and not proxies:
+        # 直连 clone 失败时自动换全局代理重试一次
+        _p_url = load_settings().get("proxy", "").strip()
+        if _p_url:
+            shutil.rmtree(dest, ignore_errors=True)
+            ok, err = _git_clone_shallow(target.get("clean_repo", url), dest,
+                                         branch=target.get("branch", ""),
+                                         proxies={"http": _p_url, "https": _p_url}, token=token)
     if not ok:
         return {"ok": False, "error": f"git clone 失败: {err}"}
     pref = data_path or ""
@@ -6231,6 +6280,15 @@ def scan_local_update(config: dict) -> dict:
             db.commit()
             result["videos_added"] += stats["new_videos"] + stats["new_series"]
             result["videos_updated"] += stats["updated_videos"] + stats["updated_series"]
+            # 回填 config_id：数据源管理的数量统计依赖 videos/series.config_id
+            cfg_id = config.get("id")
+            if cfg_id and stats.get("batch_id"):
+                db.execute("UPDATE videos SET config_id = ? WHERE import_batch_id = ? AND (config_id IS NULL OR config_id = 0)",
+                           (cfg_id, stats["batch_id"]))
+                db.execute("UPDATE series SET config_id = ? WHERE import_batch_id = ? AND (config_id IS NULL OR config_id = 0)",
+                           (cfg_id, stats["batch_id"]))
+                db.commit()
+                result.setdefault("batch_ids", []).append(stats["batch_id"])
 
     # Live imports use their own transaction, after the video handle closes
     for f, data in live_entries:
@@ -6288,10 +6346,14 @@ def _download_stream_resumable(
             total = r.headers.get("content-length")
             total = int(total) if total and total.isdigit() else None
             mode = "ab" if (have and r.status_code == 206) else "wb"
+            start_ts = time.time()
             with open(dest_path, mode) as f:
                 for chunk in r.iter_content(chunk_size=65536):
                     if chunk:
                         f.write(chunk)
+                        # 慢速链路快速放弃：8 秒内不足 256KB 判定不可用
+                        if time.time() - start_ts > 8 and dest_path.stat().st_size - (have if mode == "ab" else 0) < 262144:
+                            return False, "直连过慢（8s < 256KB），建议启用拉取代理"
             size = dest_path.stat().st_size
             if total and size < total:
                 last_err = f"IncompleteRead {size}/{total}"
