@@ -1,0 +1,19 @@
+{
+  "rate_mbps": 2.0,
+  "latency_ms": 200.0,
+  "file_bytes": 2743156,
+  "tail_moov": {
+    "metadata_ready_s": 0.6,
+    "metadata_bytes": 89899,
+    "metadata_requests": 2,
+    "seek_50pct_256k_s": 1.15,
+    "seek_ok": true
+  },
+  "faststart": {
+    "metadata_ready_s": 0.4,
+    "metadata_bytes": 65536,
+    "metadata_requests": 1,
+    "seek_50pct_256k_s": 1.15,
+    "seek_ok": true
+  }
+}
