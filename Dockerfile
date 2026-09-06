@@ -39,7 +39,18 @@ RUN if [ "$USE_CN_MIRROR" = "1" ]; then \
     fi
 
 COPY app.py config.py quick.py ./
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# entrypoint 直接内嵌（无需额外文件，避免构建上下文缺文件失败）
+COPY <<'EOF' /usr/local/bin/entrypoint.sh
+#!/bin/sh
+# root 启动时修正挂载数据卷属主后降权 appuser；bind mount / 命名卷均可自愈
+if [ "$(id -u)" = "0" ] && command -v gosu >/dev/null 2>&1; then
+    mkdir -p /app/data
+    chown -R appuser:appuser /app/data 2>/dev/null || true
+    exec gosu appuser "$@"
+fi
+exec "$@"
+EOF
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # /app/data holds the SQLite database, settings and downloaded files and
