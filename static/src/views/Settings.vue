@@ -263,63 +263,42 @@
         <div class="form-row">
           <label class="field grow"><span>hosts 映射（每行「IP 域名」，仅作用于封面抓取，优先于 DoH）</span><textarea v-model.trim="hostsMap" rows="3" placeholder="185.13.109.141 image.jinyingimage.com&#10;37.77.87.202 img.lzipic.com"></textarea></label>
         </div>
-        <div class="form-row">
-          <label class="field grow"><span>站点代理规则（每行一个关键词：站点名或域名片段，命中的资源站服务端请求——探测/页面解析/封面——走代理；留空=跟随全局代理设置）</span><textarea v-model.trim="proxySites" rows="3" placeholder="金鹰&#10;jinyingimage&#10;ijycnd"></textarea></label>
-        </div>
         <div class="proxy-test-result" v-if="proxyTestResult" :class="{ ok: proxyTestResult.ok, fail: !proxyTestResult.ok }">
           {{ proxyTestResult.ok ? '连通正常' : ('测试失败：' + (proxyTestResult.error || '未知错误')) }}
         </div>
 
-        <!-- 全局默认开关 -->
-        <div class="proxy-defaults-card">
-          <h4>全局默认策略</h4>
-          <div class="form-row defaults-row">
-            <label class="check-item">
-              <input type="checkbox" v-model="proxyPullDefault" @change="saveProxy" />
-              <span>源拉取默认走代理（未单独指定的数据源拉取 Git / JSON 时生效）</span>
-            </label>
-            <label class="check-item">
-              <input type="checkbox" v-model="proxyPlayDefault" @change="saveProxy" />
-              <span>播放默认走代理（未单独指定的视频 / 直播流播放时生效）</span>
-            </label>
+        <!-- 代理条目（唯一主配置入口）：订阅源 / 播放源 两层 -->
+        <div class="proxy-entries">
+          <div class="proxy-entries-col">
+            <h4>订阅源条目 <span class="entry-hint">这些订阅源的同步拉取与直播播放走代理</span></h4>
+            <div class="entry-add-row">
+              <select v-model="newSubEntry">
+                <option value="">选择订阅源…</option>
+                <option v-for="c in autoConfigs" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" :disabled="!newSubEntry" @click="addSubEntry">添加</button>
+            </div>
+            <ul class="entry-list">
+              <li v-for="s in ruleSubs" :key="s.id || s.name">
+                <span>{{ s.name || ('订阅源 #' + s.id) }}</span>
+                <button class="entry-remove" @click="removeSubEntry(s)" title="移除">✕</button>
+              </li>
+              <li v-if="!ruleSubs.length" class="entry-empty">暂无——默认全部直连</li>
+            </ul>
           </div>
-        </div>
-
-        <div class="proxy-sources" v-if="autoConfigs.length">
-          <h4>按源独立控制（覆盖全局默认）</h4>
-          <div class="sources-table-wrap">
-            <table class="sources-table compact">
-              <thead>
-                <tr>
-                  <th style="min-width: 140px;">数据源名称</th>
-                  <th style="width: 70px; text-align: center;">类别</th>
-                  <th style="width: 90px; text-align: center;">源拉取代理</th>
-                  <th style="width: 90px; text-align: center;">播放代理</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="c in autoConfigs" :key="c.id">
-                  <td>
-                    <strong class="source-name" :title="'完整地址：' + c.source_path">{{ c.name }}</strong>
-                  </td>
-                  <td style="text-align: center;">
-                    <span class="type-tag sm" :class="c.source_type">{{ c.source_type === 'live' ? '直播' : '影视' }}</span>
-                  </td>
-                  <td style="text-align: center;">
-                    <button type="button" class="proxy-badge-btn" :class="{ active: isPullProxied(c) }"
-                            @click="toggleSourceProxyPull(c)" :disabled="busy">
-                      {{ isPullProxied(c) ? '走代理' : '直连' }}
-                    </button>
-                  </td>
-                  <td style="text-align: center;">
-                    <button type="button" class="proxy-badge-btn play" :class="{ active: isPlayProxied(c) }"
-                            @click="toggleSourceProxyPlay(c)" :disabled="busy">
-                      {{ isPlayProxied(c) ? '走代理' : '直连' }}
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="proxy-entries-col">
+            <h4>播放源条目 <span class="entry-hint">命中关键词的播放线路走代理（探测 / 页面解析 / 封面 / 中转播放）</span></h4>
+            <div class="entry-add-row">
+              <input v-model.trim="newPlayEntry" placeholder="站点名或域名片段，如 金鹰 / jinyingimage" @keyup.enter="addPlayEntry" />
+              <button class="btn btn-secondary btn-sm" :disabled="!newPlayEntry" @click="addPlayEntry">添加</button>
+            </div>
+            <ul class="entry-list">
+              <li v-for="k in rulePlays" :key="k">
+                <span>{{ k }}</span>
+                <button class="entry-remove" @click="removePlayEntry(k)" title="移除">✕</button>
+              </li>
+              <li v-if="!rulePlays.length" class="entry-empty">暂无——默认全部直连</li>
+            </ul>
           </div>
         </div>
       </section>
@@ -418,8 +397,9 @@ const GROUPS = [
 const tab = ref('sources')
 const busy = ref(false)
 
-const proxyPullDefault = ref(false)
-const proxyPlayDefault = ref(false)
+const proxyRules = ref({ subs: [], plays: [] })
+const newSubEntry = ref('')
+const newPlayEntry = ref('')
 
 /* 代理配置加载 */
 async function loadProxyConfig() {
@@ -429,19 +409,10 @@ async function loadProxyConfig() {
     gitToken.value = s.token || ''
     dohUrl.value = s.doh_url || ''
     hostsMap.value = s.hosts_map || ''
-    proxySites.value = s.proxy_sites || ''
-    proxyPullDefault.value = !!s.proxy_pull_default
-    proxyPlayDefault.value = !!s.proxy_play_default
-    const ps = s.proxy_sources || {}
-    const map = {}
-    for (const [k, v] of Object.entries(ps)) {
-      if (v && typeof v === 'object') {
-        map[k] = { pull: !!v.pull, play: !!v.play }
-      } else {
-        map[k] = { pull: !!v, play: false }
-      }
-    }
-    proxySources.value = map
+    try {
+      const pr = JSON.parse(s.proxy_rules || '{}')
+      proxyRules.value = { subs: pr.subs || [], plays: pr.plays || [] }
+    } catch { proxyRules.value = { subs: [], plays: [] } }
   } catch (e) {
     ui.toast(e.message || '设置加载失败（需要管理员身份）', 'error')
   }
@@ -636,40 +607,37 @@ async function triggerAuto(c) {
   busy.value = false
 }
 
-function isPullProxied(c) {
-  if (c.proxy_pull != null) return !!c.proxy_pull
-  if (c.use_proxy != null) return !!c.use_proxy
-  return !!proxyPullDefault.value
-}
+const ruleSubs = computed(() => proxyRules.value.subs.map(s => ({
+  ...s,
+  name: s.name || (autoConfigs.value.find(c => String(c.id) === String(s.id))?.name) || ''
+})))
+const rulePlays = computed(() => proxyRules.value.plays)
 
-function isPlayProxied(c) {
-  if (c.proxy_play != null) return !!c.proxy_play
-  return !!proxyPlayDefault.value
-}
-
-async function toggleSourceProxyPull(c) {
-  const currentVal = c.proxy_pull != null ? c.proxy_pull : (c.use_proxy ? 1 : 0)
-  const newVal = currentVal ? 0 : 1
-  try {
-    await store.updateAutoUpdate(c.id, { proxy_pull: newVal, use_proxy: newVal })
-    c.proxy_pull = newVal
-    c.use_proxy = newVal
-    ui.toast(`已将「${c.name}」源拉取切换为${newVal ? '走代理' : '直连'}`, 'success')
-  } catch (e) {
-    ui.toast(e.message || '修改代理设置失败', 'error')
+function addSubEntry() {
+  const c = autoConfigs.value.find(x => String(x.id) === newSubEntry.value)
+  if (!c) return
+  if (proxyRules.value.subs.some(s => String(s.id) === String(c.id))) {
+    ui.toast('该订阅源已在条目中', 'info'); return
   }
+  proxyRules.value.subs.push({ id: String(c.id), name: c.name })
+  newSubEntry.value = ''
+  saveProxy()
 }
-
-async function toggleSourceProxyPlay(c) {
-  const currentVal = c.proxy_play ? 1 : 0
-  const newVal = currentVal ? 0 : 1
-  try {
-    await store.updateAutoUpdate(c.id, { proxy_play: newVal })
-    c.proxy_play = newVal
-    ui.toast(`已将「${c.name}」播放切换为${newVal ? '走代理' : '直连'}`, 'success')
-  } catch (e) {
-    ui.toast(e.message || '修改播放代理设置失败', 'error')
-  }
+function removeSubEntry(s) {
+  proxyRules.value.subs = proxyRules.value.subs.filter(x => String(x.id) !== String(s.id))
+  saveProxy()
+}
+function addPlayEntry() {
+  const k = newPlayEntry.value
+  if (!k) return
+  if (proxyRules.value.plays.some(x => x === k)) { ui.toast('该关键词已在条目中', 'info'); return }
+  proxyRules.value.plays.push(k)
+  newPlayEntry.value = ''
+  saveProxy()
+}
+function removePlayEntry(k) {
+  proxyRules.value.plays = proxyRules.value.plays.filter(x => x !== k)
+  saveProxy()
 }
 
 function statusLabel(c) {
@@ -774,9 +742,7 @@ const proxyAddr = ref('')
 const gitToken = ref('')
 const dohUrl = ref('')
 const hostsMap = ref('')
-const proxySites = ref('')
 const proxyTestTarget = ref('')
-const proxySources = ref({})
 const testing = ref(false)
 const proxyTestResult = ref(null)
 
@@ -788,9 +754,7 @@ async function saveProxy() {
       token: gitToken.value,
       doh_url: dohUrl.value,
       hosts_map: hostsMap.value,
-      proxy_sites: proxySites.value,
-      proxy_pull_default: proxyPullDefault.value ? 1 : 0,
-      proxy_play_default: proxyPlayDefault.value ? 1 : 0,
+      proxy_rules: JSON.stringify(proxyRules.value),
     })
     ui.toast('代理设置已保存', 'success')
   } catch (e) {
@@ -816,14 +780,6 @@ async function testProxy() {
   testing.value = false
 }
 
-async function saveProxySources() {
-  try {
-    await store.putAdminSettings({ proxy_sources: { ...proxySources.value } })
-    ui.toast('按源代理设置已保存', 'success')
-  } catch (e) {
-    ui.toast(e.message || '保存失败', 'error')
-  }
-}
 
 /* 分类管理 */
 const catTree = ref([])

@@ -1652,6 +1652,18 @@ def load_settings():
     # ("follow"). Stored as 0/1 ints.
     if "proxy_pull_default" not in data:
         data["proxy_pull_default"] = 0
+    # 旧版分散代理配置一次性迁移为 proxy_rules 条目（不再使用全局默认）
+    if "proxy_rules" not in data:
+        subs, plays = [], []
+        for cid, v in (data.get("proxy_sources") or {}).items():
+            wanted = (isinstance(v, dict) and (v.get("pull") or v.get("play"))) or v == 1 or v is True
+            if wanted:
+                subs.append({"id": str(cid), "name": ""})
+        for line in (data.get("proxy_sites") or "").splitlines():
+            if line.strip():
+                plays.append(line.strip())
+        if subs or plays:
+            data["proxy_rules"] = json.dumps({"subs": subs, "plays": plays}, ensure_ascii=False)
     if "proxy_play_default" not in data:
         data["proxy_play_default"] = 0
     # Admin-curated intranet allowlist (comma/semicolon/newline separated
@@ -1840,15 +1852,13 @@ def _doh_resolve(host: str, doh_url: str) -> str | None:
 
 
 def _site_proxy_enabled(url: str, settings: dict) -> bool:
-    """站点级代理规则：proxy_sites 每行一个关键词（站点名/域名片段），
-    命中的 URL 服务端请求走全局代理。未配置规则时返回 True（维持
-    「有全局代理就走代理」的旧行为）。"""
-    rules = (settings.get("proxy_sites") or "")
-    kw = [l.strip().lower() for l in rules.splitlines() if l.strip()]
-    if not kw:
-        return True
-    u = (url or "").lower()
-    return any(k in u for k in kw)
+    """播放源条目：命中关键词（站点名/域名片段）的 URL 服务端请求走代理。
+    未命中 = 直连（本应用不再有全局默认走代理）。"""
+    plays = _proxy_rules(settings).get("plays") or []
+    if not plays or not url:
+        return False
+    u = url.lower()
+    return any(str(k).lower() in u for k in plays)
 
 
 def _apply_dns_override(url: str, headers: dict, settings: dict):
@@ -5377,7 +5387,7 @@ async def admin_delete_project(project_id: int, user_payload=Depends(require_adm
 
 # -- Admin Settings (global: data source, proxy) --
 
-SETTING_KEYS = ("repo_url", "token", "proxy", "site_name", "workflow_file", "data_path", "private_allowlist", "doh_url", "hosts_map", "proxy_sites")
+SETTING_KEYS = ("repo_url", "token", "proxy", "site_name", "workflow_file", "data_path", "private_allowlist", "doh_url", "hosts_map", "proxy_sites", "proxy_rules")
 # Integer-boolean settings (stored as 0/1, never as "True"/"False" strings).
 SETTING_BOOL_KEYS = ("proxy_pull_default", "proxy_play_default")
 
@@ -5910,30 +5920,55 @@ def _probe_media_json_in_dir(root: Path, preferred_path: str = "") -> list[Path]
     return sorted(found, key=lambda p: -found[p])
 
 
+def _proxy_rules(settings: dict | None = None) -> dict:
+    """代理条目（两层）：subs=订阅源条目（同步/其直播播放走代理），
+    plays=播放源条目（URL 关键词，命中的服务端请求走代理）。
+    旧版 proxy_sources / proxy_sites 在 load_settings 中一次性迁移。"""
+    s = settings if settings is not None else load_settings()
+    raw = s.get("proxy_rules") or "{}"
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return {"subs": data.get("subs") or [], "plays": data.get("plays") or []}
+
+
+def _sub_proxy_enabled(config: dict | None, settings: dict) -> bool:
+    """订阅源条目匹配：按配置 id（优先）或名称包含。"""
+    rules = _proxy_rules(settings)
+    subs = rules.get("subs") or []
+    if not subs or not config:
+        return False
+    cid = str(config.get("id") or "")
+    name = (config.get("name") or "").strip()
+    for s in subs:
+        sid = str(s.get("id") or "")
+        sname = (s.get("name") or "").strip()
+        if cid and sid and sid == cid:
+            return True
+        if sname and name and (sname == name or sname in name):
+            return True
+    return False
+
+
 def _proxy_pull_enabled(config: dict | None = None, settings: dict | None = None) -> bool:
-    """Pull channel: should fetching (git clone / remote JSON) use proxy?
-    Per-source proxy_pull (NULL = follow) wins, then legacy use_proxy,
-    then the global proxy_pull_default."""
+    """拉取走代理？= 命中订阅源条目，或导入表单的显式开关（列/字段）被勾选。"""
+    s = settings if settings is not None else load_settings()
+    if _sub_proxy_enabled(config, s):
+        return True
     cfg = config or {}
     v = cfg.get("proxy_pull", None)
     if v is None:
         v = cfg.get("use_proxy", None)
-    if v is None:
-        return bool((settings if settings is not None else load_settings()).get("proxy_pull_default", False))
     return bool(v)
 
 
 def _proxy_play_enabled(config: dict | None = None, settings: dict | None = None) -> bool:
-    """Play channel: should stream relaying use proxy? Per-source
-    proxy_play (NULL = follow) wins, then legacy use_proxy (which
-    historically also drove live playback), then global proxy_play_default."""
-    cfg = config or {}
-    v = cfg.get("proxy_play", None)
-    if v is None:
-        v = cfg.get("use_proxy", None)
-    if v is None:
-        return bool((settings if settings is not None else load_settings()).get("proxy_play_default", False))
-    return bool(v)
+    """播放（直播中转等）走代理？= 命中订阅源条目。"""
+    s = settings if settings is not None else load_settings()
+    return _sub_proxy_enabled(config, s)
 
 
 def _update_proxies(config: dict | None = None) -> dict | None:
