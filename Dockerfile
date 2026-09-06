@@ -11,7 +11,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py app_v8.py config.py quick.py ./
+COPY app.py config.py quick.py ./
 
 # Run as an unprivileged user; /app/data holds the SQLite database,
 # settings and downloaded files and must be writable by the app.
