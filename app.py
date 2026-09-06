@@ -586,6 +586,13 @@ def _init_db_schema():
     db = sqlite3.connect(str(DB_FILE))
     db.row_factory = sqlite3.Row
 
+    # WAL 模式：读不阻塞写、写不阻塞读，避免长事务（如全量导入）在
+    # delete 日志模式的 PENDING/EXCLUSIVE 阶段把所有读请求一起堵死。
+    # 幂等：已是 WAL 时为 no-op；对全新数据卷首次启动即生效。
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA busy_timeout=15000")
+    db.commit()
+
     # 1. projects table
     db.execute("""
         CREATE TABLE IF NOT EXISTS projects (
