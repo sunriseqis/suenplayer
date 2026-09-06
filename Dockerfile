@@ -1,18 +1,31 @@
 # suenplayer backend (APP_VERSION 2.1)
 #
+# 多阶段构建：frontend 阶段构建前端（国内走 npmmirror），runtime 阶段组装。
 # 国内网络加速构建：
-#   基础镜像走 DaoCloud 中转（也可改回 python:3.11-slim 配合 docker registry mirror）；
-#   Debian apt 源与 pip 源在构建时切换为清华镜像。
+#   基础镜像走 DaoCloud 中转；npm/pip/apt 源在构建时切换为国内镜像。
 # Build:  docker build -t suenplayer-backend .
 # 海外构建（走官方源）:
 #         docker build --build-arg BASE_IMAGE=python:3.11-slim \
+#                      --build-arg NODE_IMAGE=node:20-slim \
 #                      --build-arg USE_CN_MIRROR=0 -t suenplayer-backend .
 # Run:    docker run -p 8080:8080 -v suenplayer_data:/app/data suenplayer-backend
 #         （bind mount 宿主目录也可以，entrypoint 会自动修正属主）
 
 ARG BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim
-FROM ${BASE_IMAGE}
+ARG NODE_IMAGE=docker.m.daocloud.io/library/node:20-slim
 
+# ── 阶段 1：前端构建 ──
+FROM ${NODE_IMAGE} AS frontend
+ARG USE_CN_MIRROR=1
+WORKDIR /build
+COPY static/package.json static/package-lock.json ./
+RUN if [ "$USE_CN_MIRROR" = "1" ]; then npm config set registry https://registry.npmmirror.com; fi \
+    && npm ci
+COPY static/ ./
+RUN npm run build
+
+# ── 阶段 2：运行镜像 ──
+FROM ${BASE_IMAGE}
 ARG USE_CN_MIRROR=1
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -39,6 +52,7 @@ RUN if [ "$USE_CN_MIRROR" = "1" ]; then \
     fi
 
 COPY app.py config.py quick.py ./
+COPY --from=frontend /build/dist /app/static/dist
 
 # entrypoint 直接内嵌（无需额外文件，避免构建上下文缺文件失败）
 COPY <<'EOF' /usr/local/bin/entrypoint.sh

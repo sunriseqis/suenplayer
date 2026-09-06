@@ -1,0 +1,13 @@
+# 构建上下文裁剪：加速上传、避免宿主状态污染镜像
+venv/
+data/
+static/node_modules/
+static/dist/
+__pycache__/
+**/__pycache__/
+*.log
+*.tar.gz
+*.db
+测试脚本/
+doc/
+.git/
