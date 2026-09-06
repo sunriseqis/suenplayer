@@ -253,11 +253,15 @@
         <div class="form-row">
           <label class="field grow"><span>代理地址</span><input v-model.trim="proxyAddr" placeholder="http://127.0.0.1:7890 或 socks5://…" /></label>
           <label class="field target-field"><span>测试目标（可选）</span><input v-model.trim="proxyTestTarget" placeholder="默认: https://www.google.com/generate_204" /></label>
+          <button class="btn primary self-end" :disabled="busy" @click="saveProxy">保存设置</button>
+          <button class="btn secondary self-end" :disabled="busy" @click="testProxy">{{ testing ? '测试中…' : '测试连通' }}</button>
         </div>
         <div class="form-row">
           <label class="field grow"><span>Git 访问令牌（可选，拉取私有仓库时填写）</span><input v-model.trim="gitToken" type="password" autocomplete="off" placeholder="ghp_… / ghp_xxx，留空表示仅公开仓库" /></label>
-          <button class="btn primary self-end" :disabled="busy" @click="saveProxy">保存设置</button>
-          <button class="btn secondary self-end" :disabled="busy" @click="testProxy">{{ testing ? '测试中…' : '测试连通' }}</button>
+          <label class="field target-field"><span>DoH 服务（DNS 防污染，可选）</span><input v-model.trim="dohUrl" placeholder="https://223.5.5.5/resolve" /></label>
+        </div>
+        <div class="form-row">
+          <label class="field grow"><span>hosts 映射（每行「IP 域名」，仅作用于封面抓取，优先于 DoH）</span><textarea v-model.trim="hostsMap" rows="3" placeholder="185.13.109.141 image.jinyingimage.com&#10;37.77.87.202 img.lzipic.com"></textarea></label>
         </div>
         <div class="proxy-test-result" v-if="proxyTestResult" :class="{ ok: proxyTestResult.ok, fail: !proxyTestResult.ok }">
           {{ proxyTestResult.ok ? '连通正常' : ('测试失败：' + (proxyTestResult.error || '未知错误')) }}
@@ -420,6 +424,8 @@ async function loadProxyConfig() {
     const s = await store.fetchAdminSettings()
     proxyAddr.value = s.proxy || ''
     gitToken.value = s.token || ''
+    dohUrl.value = s.doh_url || ''
+    hostsMap.value = s.hosts_map || ''
     proxyPullDefault.value = !!s.proxy_pull_default
     proxyPlayDefault.value = !!s.proxy_play_default
     const ps = s.proxy_sources || {}
@@ -762,6 +768,8 @@ async function loadLogs(c) {
 /* 代理 */
 const proxyAddr = ref('')
 const gitToken = ref('')
+const dohUrl = ref('')
+const hostsMap = ref('')
 const proxyTestTarget = ref('')
 const proxySources = ref({})
 const testing = ref(false)
@@ -773,6 +781,8 @@ async function saveProxy() {
     await store.putAdminSettings({
       proxy: proxyAddr.value,
       token: gitToken.value,
+      doh_url: dohUrl.value,
+      hosts_map: hostsMap.value,
       proxy_pull_default: proxyPullDefault.value ? 1 : 0,
       proxy_play_default: proxyPlayDefault.value ? 1 : 0,
     })

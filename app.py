@@ -1769,6 +1769,97 @@ def get_videos_file(preferred_path: str = ""):
 
 
 
+# -- DNS 防污染（封面抓取用）--
+# hosts_map: 每行「IP 域名」（兼容 hosts 格式），命中域名的请求按 IP 直连、
+#            SNI/证书校验仍按真实域名（_PinnedHostAdapter）；
+# doh_url:   未命中映射时经国内 DoH（如 https://223.5.5.5/resolve）解析。
+# 两者都不配置则走系统 DNS。仅在封面缓存抓取路径生效。
+
+_doh_cache: dict = {}
+_hosts_map_cache: dict = {}
+
+from requests.adapters import HTTPAdapter
+
+
+class _PinnedHostAdapter(HTTPAdapter):
+    """连接 URL 中的 IP，TLS SNI 与证书校验按 pinned 的真实域名进行。"""
+
+    def __init__(self, hostname, **kwargs):
+        self._pinned_hostname = hostname
+        super().__init__(**kwargs)
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["server_hostname"] = self._pinned_hostname
+        super().init_poolmanager(*args, **kwargs)
+
+
+def _parse_hosts_map(text: str) -> dict:
+    mapping = {}
+    for line in (text or "").splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        a, b = parts[0].strip(), parts[1].strip()
+        if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", a):
+            mapping[b.lower()] = a
+        elif re.match(r"^\d{1,3}(\.\d{1,3}){3}$", b):
+            mapping[a.lower()] = b
+    return mapping
+
+
+def _get_hosts_map(settings: dict) -> dict:
+    text = settings.get("hosts_map", "")
+    key = hash(text)
+    now = time.time()
+    hit = _hosts_map_cache.get("v")
+    if hit and hit[0] == key:
+        return hit[1]
+    mapping = _parse_hosts_map(text)
+    _hosts_map_cache["v"] = (key, mapping)
+    return mapping
+
+
+def _doh_resolve(host: str, doh_url: str) -> str | None:
+    if not doh_url or not host:
+        return None
+    now = time.time()
+    hit = _doh_cache.get(host)
+    if hit and hit[1] > now:
+        return hit[0]
+    try:
+        r = requests.get(doh_url, params={"name": host, "type": "A"},
+                         timeout=5, verify=_REQUESTS_VERIFY,
+                         headers={"Accept": "application/dns-json"})
+        answers = [a["data"] for a in r.json().get("Answer", []) if a.get("type") == 1]
+        if answers:
+            _doh_cache[host] = (answers[0], now + 600)
+            return answers[0]
+    except Exception:
+        pass
+    return None
+
+
+def _apply_dns_override(url: str, headers: dict, settings: dict):
+    """返回 (请求URL, 请求头, 钉扎域名或 None)。无覆盖时原样返回。"""
+    from urllib.parse import urlparse as _urlparse
+    pu = _urlparse(url)
+    host = (pu.hostname or "").lower()
+    if not host or not pu.scheme == "https":
+        return url, headers, None
+    ip = _get_hosts_map(settings).get(host)
+    source = "hosts" if ip else None
+    if not ip:
+        ip = _doh_resolve(host, settings.get("doh_url", "").strip())
+        source = "doh" if ip else None
+    if not ip:
+        return url, headers, None
+    netloc = f"{ip}:{pu.port}" if pu.port else ip
+    new_url = pu._replace(netloc=netloc).geturl()
+    new_headers = dict(headers)
+    new_headers["Host"] = host
+    return new_url, new_headers, host
+
+
 # -- Image Cache --
 
 def _optimize_image_bytes(data: bytes, ext: str) -> bytes:
@@ -1836,8 +1927,18 @@ async def image_cache(url: str):
         proxies = None
         if proxy_url:
             proxies = {"http": proxy_url, "https": proxy_url}
+        settings = load_settings()
+        req_url, req_headers, pinned = _apply_dns_override(url, headers, settings)
+
+        def _fetch():
+            if pinned:
+                sess = requests.Session()
+                sess.mount(f"https://", _PinnedHostAdapter(pinned))
+                return sess.get(req_url, headers=req_headers, timeout=(5, 12), verify=_REQUESTS_VERIFY)
+            return _requests_get_safe_redirects(req_url, headers=req_headers, proxies=proxies, timeout=(5, 12), verify=_REQUESTS_VERIFY)
+
         try:
-            r = await asyncio.to_thread(_requests_get_safe_redirects, url, headers=headers, proxies=proxies, timeout=(5, 12), verify=_REQUESTS_VERIFY)
+            r = await asyncio.to_thread(_fetch)
             if r.status_code == 200 and r.content:
                 CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 content = await asyncio.to_thread(_optimize_image_bytes, r.content, ext)
@@ -5238,7 +5339,7 @@ async def admin_delete_project(project_id: int, user_payload=Depends(require_adm
 
 # -- Admin Settings (global: data source, proxy) --
 
-SETTING_KEYS = ("repo_url", "token", "proxy", "site_name", "workflow_file", "data_path", "private_allowlist")
+SETTING_KEYS = ("repo_url", "token", "proxy", "site_name", "workflow_file", "data_path", "private_allowlist", "doh_url", "hosts_map")
 # Integer-boolean settings (stored as 0/1, never as "True"/"False" strings).
 SETTING_BOOL_KEYS = ("proxy_pull_default", "proxy_play_default")
 
@@ -5964,19 +6065,41 @@ def _fetch_remote_to_dir(url: str, dest_dir: Path, proxies: dict | None,
                     continue
                 dl_url = it.get("download_url") or (
                     f"https://raw.githubusercontent.com/{target['owner']}/{target['repo']}/{branch}/{it.get('path', '')}")
-                try:
-                    r_dl = _get(dl_url)
-                    if r_dl.status_code != 200:
+                # raw 直链失败（国内常不可达/断流）自动回退 contents API；
+                # 每个候选都用断点续传下载，对抗不稳定链路的大文件断流
+                gh_raw_headers = {"Accept": "application/vnd.github.v3.raw"}
+                if token:
+                    gh_raw_headers["Authorization"] = f"Bearer {token}"
+                candidates = [
+                    (dl_url, headers),
+                    (f"{api_url}/{it.get('path', '')}", gh_raw_headers),
+                ]
+                dest_file = dest_dir / it["name"]
+                got_file = False
+                last_dl_err = ""
+                for cand_url, cand_headers in candidates:
+                    ok_dl, err_dl = _download_stream_resumable(
+                        cand_url, {**headers, **cand_headers}, dest_file, proxies=proxies)
+                    if not ok_dl:
+                        last_dl_err = err_dl
                         continue
-                    data = json.loads(r_dl.content)
+                    try:
+                        data = json.loads(dest_file.read_bytes())
+                    except Exception:
+                        dest_file.unlink(missing_ok=True)
+                        last_dl_err = "下载内容不是合法 JSON"
+                        continue
                     if detect_json_type(data) == "unknown":
+                        dest_file.unlink(missing_ok=True)
+                        last_dl_err = f"{it['name']} 不是可识别的媒体 JSON"
                         continue
-                    (dest_dir / it["name"]).write_bytes(r_dl.content)
-                    got += 1
-                except Exception:
+                    got_file = True
+                    break
+                if not got_file:
                     continue
             if not got:
-                return {"ok": False, "error": f"目录 {subpath} 下未找到有效的媒体 JSON"}
+                detail = f"（最后错误: {last_dl_err}）" if last_dl_err else ""
+                return {"ok": False, "error": f"目录 {subpath} 下未找到有效的媒体 JSON{detail}"}
             return {"ok": True, "method": "github_tree", "files": got, "error": ""}
         except RuntimeError as e:
             return {"ok": False, "error": str(e)}
@@ -6138,6 +6261,47 @@ def _serialized(fn):
 import_single_file_unified = _serialized(import_single_file_unified)
 import_directory_unified = _serialized(import_directory_unified)
 scan_local_update = _serialized(scan_local_update)
+
+
+def _download_stream_resumable(
+    url: str, headers: dict, dest_path: Path, proxies: dict | None = None,
+    timeout=(10, 30), max_attempts: int = 6,
+) -> tuple[bool, str]:
+    """流式下载 + 断点续传。
+
+    直连 GitHub 等不稳定链路上大文件极易中途断流（IncompleteRead），
+    以 Range 从已下载字节继续，直到 Content-Length 拉满或重试次数耗尽。
+    """
+    last_err = ""
+    for attempt in range(max_attempts):
+        have = dest_path.stat().st_size if dest_path.exists() else 0
+        hdr = dict(headers)
+        if have:
+            hdr["Range"] = f"bytes={have}-"
+        try:
+            r = requests.get(url, headers=hdr, stream=True, proxies=proxies,
+                             timeout=timeout, verify=_REQUESTS_VERIFY)
+            if r.status_code == 416:  # Range 超出：本地已完整
+                return True, ""
+            if r.status_code not in (200, 206):
+                return False, f"HTTP {r.status_code}"
+            total = r.headers.get("content-length")
+            total = int(total) if total and total.isdigit() else None
+            mode = "ab" if (have and r.status_code == 206) else "wb"
+            with open(dest_path, mode) as f:
+                for chunk in r.iter_content(chunk_size=65536):
+                    if chunk:
+                        f.write(chunk)
+            size = dest_path.stat().st_size
+            if total and size < total:
+                last_err = f"IncompleteRead {size}/{total}"
+                time.sleep(0.8)
+                continue
+            return True, ""
+        except Exception as e:
+            last_err = str(e)
+            time.sleep(0.8)
+    return False, last_err
 
 
 def _extract_json_links_from_html(html_text: str, base_url: str) -> list[str]:
