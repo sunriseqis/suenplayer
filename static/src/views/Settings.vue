@@ -263,6 +263,9 @@
         <div class="form-row">
           <label class="field grow"><span>hosts 映射（每行「IP 域名」，仅作用于封面抓取，优先于 DoH）</span><textarea v-model.trim="hostsMap" rows="3" placeholder="185.13.109.141 image.jinyingimage.com&#10;37.77.87.202 img.lzipic.com"></textarea></label>
         </div>
+        <div class="form-row">
+          <label class="field grow"><span>站点代理规则（每行一个关键词：站点名或域名片段，命中的资源站服务端请求——探测/页面解析/封面——走代理；留空=跟随全局代理设置）</span><textarea v-model.trim="proxySites" rows="3" placeholder="金鹰&#10;jinyingimage&#10;ijycnd"></textarea></label>
+        </div>
         <div class="proxy-test-result" v-if="proxyTestResult" :class="{ ok: proxyTestResult.ok, fail: !proxyTestResult.ok }">
           {{ proxyTestResult.ok ? '连通正常' : ('测试失败：' + (proxyTestResult.error || '未知错误')) }}
         </div>
@@ -426,6 +429,7 @@ async function loadProxyConfig() {
     gitToken.value = s.token || ''
     dohUrl.value = s.doh_url || ''
     hostsMap.value = s.hosts_map || ''
+    proxySites.value = s.proxy_sites || ''
     proxyPullDefault.value = !!s.proxy_pull_default
     proxyPlayDefault.value = !!s.proxy_play_default
     const ps = s.proxy_sources || {}
@@ -770,6 +774,7 @@ const proxyAddr = ref('')
 const gitToken = ref('')
 const dohUrl = ref('')
 const hostsMap = ref('')
+const proxySites = ref('')
 const proxyTestTarget = ref('')
 const proxySources = ref({})
 const testing = ref(false)
@@ -783,6 +788,7 @@ async function saveProxy() {
       token: gitToken.value,
       doh_url: dohUrl.value,
       hosts_map: hostsMap.value,
+      proxy_sites: proxySites.value,
       proxy_pull_default: proxyPullDefault.value ? 1 : 0,
       proxy_play_default: proxyPlayDefault.value ? 1 : 0,
     })

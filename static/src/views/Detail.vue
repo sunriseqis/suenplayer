@@ -275,17 +275,37 @@ async function startDownload() {
   if (!item.value || dlBusy.value) return
   dlBusy.value = true
   try {
-    const r = await store.createDownload({
-      target_type: isSeries.value ? 'series' : 'video',
-      target_id: item.value.id,
-      bangou: item.value.bangou,
-      project_id: item.value.project_id,
-      title: item.value.title,
-      site: item.value.site || '',
-    })
-    if (r.error) throw new Error(r.error)
-    ui.toast('下载任务已创建，可在「下载任务」页查看进度', 'success')
-    router.push('/downloads')
+    if (isSeries.value) {
+      // 整季下载：每集各建一个任务
+      const all = (seasons.value || []).flatMap(s => s.episodes || [])
+      if (!all.length) { ui.toast('该剧集没有可下载的集', 'error'); return }
+      if (all.length > 20 && !(await ui.confirm(`共 ${all.length} 集，将创建 ${all.length} 个下载任务，继续？`))) return
+      let okN = 0
+      for (const ep of all) {
+        try {
+          const r = await store.createDownload({
+            target_type: 'episode', target_id: ep.id,
+            project_id: item.value.project_id,
+            title: `${item.value.title} - ${epDisplayTitle(ep)}`,
+          })
+          if (!r.error) okN += 1
+        } catch {}
+      }
+      ui.toast(`已创建 ${okN}/${all.length} 个下载任务`, okN ? 'success' : 'error')
+      if (okN) router.push('/downloads')
+    } else {
+      const r = await store.createDownload({
+        target_type: 'video',
+        target_id: item.value.id,
+        bangou: item.value.bangou,
+        project_id: item.value.project_id,
+        title: item.value.title,
+        site: item.value.site || '',
+      })
+      if (r.error) throw new Error(r.error)
+      ui.toast('下载任务已创建，可在「下载任务」页查看进度', 'success')
+      router.push('/downloads')
+    }
   } catch (e) {
     ui.toast(e.message || '创建下载任务失败', 'error')
   }

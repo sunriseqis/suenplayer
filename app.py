@@ -1216,7 +1216,7 @@ def _detect_url_type(url: str) -> str:
     try:
         settings = load_settings()
         proxy = settings.get("proxy", "")
-        proxies = {"http": proxy, "https": proxy} if proxy else None
+        proxies = {"http": proxy, "https": proxy} if proxy and _site_proxy_enabled(url, settings) else None
         # 批量导入场景：连接超时收紧到 2 秒且不重试，探测失败按 stream 兜底
         r = requests.head(
             url, proxies=proxies, timeout=(2.0, 2.0),
@@ -1839,6 +1839,18 @@ def _doh_resolve(host: str, doh_url: str) -> str | None:
     return None
 
 
+def _site_proxy_enabled(url: str, settings: dict) -> bool:
+    """站点级代理规则：proxy_sites 每行一个关键词（站点名/域名片段），
+    命中的 URL 服务端请求走全局代理。未配置规则时返回 True（维持
+    「有全局代理就走代理」的旧行为）。"""
+    rules = (settings.get("proxy_sites") or "")
+    kw = [l.strip().lower() for l in rules.splitlines() if l.strip()]
+    if not kw:
+        return True
+    u = (url or "").lower()
+    return any(k in u for k in kw)
+
+
 def _apply_dns_override(url: str, headers: dict, settings: dict):
     """返回 (请求URL, 请求头, 钉扎域名或 None)。无覆盖时原样返回。"""
     from urllib.parse import urlparse as _urlparse
@@ -1929,7 +1941,7 @@ async def image_cache(url: str):
 
     async def try_fetch():
         proxies = None
-        if proxy_url:
+        if proxy_url and _site_proxy_enabled(url, _settings0):
             proxies = {"http": proxy_url, "https": proxy_url}
         req_url, req_headers, pinned = _apply_dns_override(url, headers, _settings0)
 
@@ -1978,7 +1990,7 @@ _FRESH_URL_EXTRACTORS = {
 
 def _resolve_fresh_url(url: str) -> dict:
     settings = load_settings()
-    proxy = settings.get("proxy", "")
+    proxy = settings.get("proxy", "") if _site_proxy_enabled(url, settings) else ""
     for name, extractor in _FRESH_URL_EXTRACTORS.items():
         if extractor["matcher"](url):
             embed_url = extractor["transform"](url)
@@ -5359,7 +5371,7 @@ async def admin_delete_project(project_id: int, user_payload=Depends(require_adm
 
 # -- Admin Settings (global: data source, proxy) --
 
-SETTING_KEYS = ("repo_url", "token", "proxy", "site_name", "workflow_file", "data_path", "private_allowlist", "doh_url", "hosts_map")
+SETTING_KEYS = ("repo_url", "token", "proxy", "site_name", "workflow_file", "data_path", "private_allowlist", "doh_url", "hosts_map", "proxy_sites")
 # Integer-boolean settings (stored as 0/1, never as "True"/"False" strings).
 SETTING_BOOL_KEYS = ("proxy_pull_default", "proxy_play_default")
 
@@ -7598,17 +7610,33 @@ def _create_download_task(data):
                 site = site or row[1]["site"] or ""
             else:
                 row = db.execute(
-                    "SELECT id, title FROM episodes WHERE id = ?", (target_id,)
+                    "SELECT id, ep_title, ep_number FROM episodes WHERE id = ?", (target_id,)
                 ).fetchone()
                 if not row:
                     return None, "剧集单集不存在", None
-                title = title or row["title"]
+                title = title or row["ep_title"] or (f"第 {row['ep_number']} 集" if row["ep_number"] else "剧集单集")
             urow = db.execute(
                 """SELECT url FROM urls WHERE target_id = ? AND target_type = ?
                    AND is_active = 1
                    ORDER BY is_backup, priority, id LIMIT 1""",
                 (target_id, target_type),
             ).fetchone()
+            if not urow and target_type == "series":
+                # 剧集本体常无独立地址：回退到第一季第一集
+                first_ep = db.execute(
+                    """SELECT e.id FROM episodes e
+                       JOIN seasons sn ON e.season_id = sn.id
+                       WHERE sn.series_id = ?
+                       ORDER BY sn.season_number, e.ep_number LIMIT 1""",
+                    (target_id,),
+                ).fetchone()
+                if first_ep:
+                    urow = db.execute(
+                        """SELECT url FROM urls WHERE target_id = ? AND target_type = 'episode'
+                           AND is_active = 1
+                           ORDER BY is_backup, priority, id LIMIT 1""",
+                        (first_ep["id"],),
+                    ).fetchone()
             url = _sanitize_task_url(urow["url"]) if urow else ""
     if not url:
         return None, "该内容没有可下载的地址", None
