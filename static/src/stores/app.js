@@ -521,11 +521,6 @@ export const useAppStore = defineStore('app', () => {
     return jfetch(`${API}/import/remote/preview`, jbody('POST', payload))
   }
 
-  async function importLiveAdmin(path) {
-    const res = await jfetch(`${API}/admin/live/import`, jbody('POST', { path }))
-    await fetchLiveCount().catch(() => {})
-    return res
-  }
 
   // ─── 下载 ──────────────────────────────────────────────
   async function downloadApi(url, options = {}) {
@@ -570,7 +565,7 @@ export const useAppStore = defineStore('app', () => {
     fetchPendingUsers, approveUser, rejectUser, fetchUserProjects, assignUserProjects,
     fetchAdminProjects, createProject, updateProject, deleteProject,
     fetchAutoUpdates, fetchProxyCandidates, createAutoUpdate, updateAutoUpdate, deleteAutoUpdate, triggerAutoUpdate, fetchAutoUpdateLogs,
-    fetchAdminSettings, putAdminSettings, importRemote, importRemotePreview, importLiveAdmin,
+    fetchAdminSettings, putAdminSettings, importRemote, importRemotePreview,
     downloadApi,
     editMode, selected, selectedSet, isSelected, toggleSelect, clearSelection, toggleEdit
   }

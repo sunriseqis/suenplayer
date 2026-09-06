@@ -32,7 +32,7 @@
             <label class="field grow"><span>产物地址（http(s) 远端或服务器本地目录 / 文件）</span><input v-model.trim="autoForm.source_path" placeholder="https://... 或 /path/to/data.json" required /></label>
             <label class="field"><span>自动更新周期（分钟，留空不自动轮询）</span><input v-model.number="autoForm.update_interval" type="number" min="10" placeholder="60" /></label>
             <label class="field check-field"><span>源拉取代理</span>
-              <label class="check-item"><input type="checkbox" v-model="autoForm.proxy_pull" /> 走代理</label>
+              <label class="check-item"><input type="checkbox" v-model="autoForm.proxy_pull" /> 代理</label>
             </label>
             <label class="field check-field"><span>流播放代理</span>
   
@@ -118,7 +118,7 @@
           </div>
           <div class="form-row">
             <label class="field grow"><span>数据路径（可选，留空自动深度探测）</span><input v-model.trim="imp.data_path" /></label>
-            <label class="check-item"><input type="checkbox" v-model="imp.use_proxy" /> 走代理</label>
+            <label class="check-item"><input type="checkbox" v-model="imp.use_proxy" /> 代理</label>
           </div>
           <div class="panel-actions">
             <button class="btn btn-secondary" :disabled="!imp.url || previewBusy || busy" @click="runPreview">{{ previewBusy ? '预览拉取中…' : '拉取预览' }}</button>
@@ -201,13 +201,6 @@
           </div>
         </div>
 
-        <div class="local-live">
-          <h4>服务器本地直播 JSON 导入</h4>
-          <div class="form-row">
-            <label class="field grow"><span>服务器上的文件路径</span><input v-model.trim="livePath" placeholder="/data/live.json" /></label>
-            <button class="btn btn-primary self-end" :disabled="!livePath || busy" @click="importLive">导入直播源</button>
-          </div>
-        </div>
       </section>
 
       <section class="panel" v-if="tab === 'proxy'">
@@ -392,7 +385,6 @@ async function loadProxyConfig() {
 /* 导入工作台 */
 const imp = reactive({ url: '', data_path: '', use_proxy: false })
 const importResult = ref(null)
-const livePath = ref('')
 const preview = ref(null)
 const previewBusy = ref(false)
 const previewError = ref('')
@@ -462,17 +454,6 @@ async function runImport() {
     }
   } catch (e) {
     ui.toast(e.message || '导入失败', 'error', 5000)
-  }
-  busy.value = false
-}
-
-async function importLive() {
-  busy.value = true
-  try {
-    await store.importLiveAdmin(livePath.value)
-    ui.toast('直播源导入完成', 'success')
-  } catch (e) {
-    ui.toast(e.message || '直播源导入失败', 'error', 5000)
   }
   busy.value = false
 }

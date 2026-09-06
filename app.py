@@ -4717,38 +4717,6 @@ async def live_logo_proxy(url: str, user_payload=Depends(require_auth)):
     )
 
 
-@app.post("/api/admin/live/import")
-async def admin_import_live(data: dict = Body(...), user_payload=Depends(require_admin)):
-    """Import a live JSON file (admin only, design 2.8.3)."""
-    path = data.get("path", "")
-    if not path:
-        raise HTTPException(status_code=400, detail="path 必填")
-    p = Path(path)
-    if not p.exists() or not p.is_file():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    try:
-        with open(p, "r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"JSON 解析失败: {e}")
-    if detect_json_type(payload) != "live":
-        raise HTTPException(status_code=400, detail="不是直播 JSON 格式")
-    result = import_live_json(payload, p.stem)
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-    with get_db() as db:
-        summary = f"频道: {result.get('channels', 0)}, 源: {result.get('sources', 0)}"
-        cid = _register_or_update_auto_config(
-            db, p.stem, "live", str(p), use_proxy=0, last_status="success", last_result=summary
-        )
-        db.execute(
-            "UPDATE live_channels SET config_id = ? WHERE (config_id IS NULL OR config_id = 0) AND source_region = ?",
-            (cid, payload.get("region") or p.stem),
-        )
-        db.commit()
-    result["config_id"] = cid
-    return {"ok": True, **result}
-
 
 @app.post("/api/admin/live/channels/{channel_id:int}/probe")
 async def admin_probe_live_channel(channel_id: int, user_payload=Depends(require_admin)):
