@@ -3241,7 +3241,7 @@ def _rebuild_auto_categories(db, project_id: int) -> None:
 
     # 快照既有排序：重建后同名分类沿用用户整理过的顺序，新增分类追加在后
     rows = db.execute(
-        "SELECT name, parent_id, level, sort_order FROM categories WHERE project_id = ?",
+        "SELECT id, name, parent_id, level, sort_order FROM categories WHERE project_id = ?",
         (project_id,),
     ).fetchall()
     id2name = {r["id"]: r["name"] for r in rows}
