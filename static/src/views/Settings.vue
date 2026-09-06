@@ -3,18 +3,15 @@
     <div class="page-inner">
       <h2 class="page-title">项目设置</h2>
 
-      <!-- B1: 分组标签页 -->
       <div class="group-tabs">
         <button v-for="g in GROUPS" :key="g.key" class="gtab"
                 :class="{ active: tab === g.key }" @click="tab = g.key">{{ g.label }}</button>
       </div>
 
-      <!-- ============ 数据源管理 ============ -->
       <section class="panel" v-if="tab === 'sources'">
         <div class="panel-header-line">
           <div>
             <h3>数据源管理</h3>
-            <p class="panel-sub">管理已导入与已配置的全部影视产物和直播源（共 {{ autoConfigs.length }} 个）。支持按源独立切换「是否启用代理」、一键同步更新，以及删除时联动清理关联数据。</p>
           </div>
           <div class="head-actions">
             <button class="btn btn-secondary sm" :disabled="busy" @click="loadAuto">刷新列表</button>
@@ -22,7 +19,6 @@
           </div>
         </div>
 
-        <!-- 新增/编辑数据源表单 -->
         <form class="create-card" v-if="showAutoForm" @submit.prevent="saveAuto">
           <h4>{{ autoEditing ? '编辑数据源' : '新增数据源' }}</h4>
           <div class="form-grid">
@@ -36,10 +32,10 @@
             <label class="field grow"><span>产物地址（http(s) 远端或服务器本地目录 / 文件）</span><input v-model.trim="autoForm.source_path" placeholder="https://... 或 /path/to/data.json" required /></label>
             <label class="field"><span>自动更新周期（分钟，留空不自动轮询）</span><input v-model.number="autoForm.update_interval" type="number" min="10" placeholder="60" /></label>
             <label class="field check-field"><span>源拉取代理</span>
-              <label class="check-item"><input type="checkbox" v-model="autoForm.proxy_pull" /> 拉取/更新元数据时走代理</label>
+              <label class="check-item"><input type="checkbox" v-model="autoForm.proxy_pull" /> 走代理</label>
             </label>
             <label class="field check-field"><span>流播放代理</span>
-              <label class="check-item"><input type="checkbox" v-model="autoForm.proxy_play" /> 视频/直播播放中转时走代理</label>
+  
             </label>
           </div>
           <div class="panel-actions">
@@ -48,7 +44,6 @@
           </div>
         </form>
 
-        <!-- 数据源表格（紧凑视图：不换行、无横向溢出） -->
         <div class="sources-table-wrap" v-if="autoConfigs.length">
           <table class="sources-table compact">
             <thead>
@@ -110,10 +105,8 @@
         </div>
       </section>
 
-      <!-- ============ 导入工作台 ============ -->
       <section class="panel" v-if="tab === 'import'">
         <h3>导入工作台</h3>
-        <p class="panel-sub">产物托管在 GitHub（git 仓库路径）、直播项目托管在服务器（直链地址）。粘贴远端地址后先拉取预览（只读分析，不写库不导入），确认文件清单、分卷归并、项目归属与直播频道预估无误后再执行导入。导入成功后将自动登记至「数据源管理」。</p>
 
         <div class="import-form">
           <label class="field">
@@ -125,13 +118,7 @@
           </div>
           <div class="form-row">
             <label class="field grow"><span>数据路径（可选，留空自动深度探测）</span><input v-model.trim="imp.data_path" /></label>
-            <label class="field check-field"><span>该源走代理</span>
-              <select v-model="imp.use_proxy">
-                <option value="">跟随全局代理</option>
-                <option value="1">强制走代理</option>
-                <option value="0">不走代理</option>
-              </select>
-            </label>
+            <label class="check-item"><input type="checkbox" v-model="imp.use_proxy" /> 走代理</label>
           </div>
           <div class="panel-actions">
             <button class="btn btn-secondary" :disabled="!imp.url || previewBusy || busy" @click="runPreview">{{ previewBusy ? '预览拉取中…' : '拉取预览' }}</button>
@@ -141,7 +128,6 @@
           <div class="preview-error" v-if="previewError">{{ previewError }}</div>
         </div>
 
-        <!-- 预览结果 -->
         <div class="preview-result" v-if="preview">
           <h4>预览结果</h4>
           <div class="pv-meta">
@@ -150,7 +136,6 @@
             <span>扫描文件：<strong>{{ preview.scanned || 0 }}</strong></span>
           </div>
 
-          <!-- 分卷归并 -->
           <div class="pv-section" v-if="preview.groups && preview.groups.length">
             <div class="pv-title">分卷归并（{{ preview.groups.length }} 组）</div>
             <div class="pv-group" v-for="g in preview.groups" :key="g.base_name">
@@ -166,7 +151,6 @@
             </div>
           </div>
 
-          <!-- 文件清单 -->
           <div class="pv-section" v-if="preview.files && preview.files.length">
             <div class="pv-title">文件清单（{{ preview.files.length }}）</div>
             <div class="pv-file" v-for="f in preview.files" :key="f.name">
@@ -180,7 +164,6 @@
             </div>
           </div>
 
-          <!-- 直播频道预估 -->
           <div class="pv-section" v-if="preview.live && preview.live.file_count">
             <div class="pv-title">直播源预估</div>
             <div class="pv-group-head">
@@ -190,14 +173,12 @@
             </div>
           </div>
 
-          <!-- 报错（原样展示） -->
           <div class="pv-section" v-if="preview.errors && preview.errors.length">
             <div class="pv-title pv-err-title">报错（{{ preview.errors.length }}）</div>
             <div class="pv-err-line" v-for="(e, i) in preview.errors" :key="i">{{ typeof e === 'string' ? e : ((e.file || e.name || '') + '：' + (e.error || e.message || JSON.stringify(e))) }}</div>
           </div>
         </div>
 
-        <!-- 三级结果反馈 -->
         <div class="import-result" v-if="importResult">
           <h4>导入结果</h4>
           <div class="res-stats">
@@ -220,7 +201,6 @@
           </div>
         </div>
 
-        <!-- 本地路径导入直播源（服务器本地文件） -->
         <div class="local-live">
           <h4>服务器本地直播 JSON 导入</h4>
           <div class="form-row">
@@ -230,10 +210,8 @@
         </div>
       </section>
 
-      <!-- ============ 代理 ============ -->
       <section class="panel" v-if="tab === 'proxy'">
         <h3>代理配置</h3>
-        <p class="panel-sub">配置网络代理地址，并添加代理条目（订阅源 / 播放源）：命中的条目走代理，未添加的直连。订阅源条目作用于该源的同步拉取与直播播放；播放源条目作用于命中线路的探测、页面解析、封面与中转播放。</p>
         <div class="form-row">
           <label class="field grow"><span>代理地址</span><input v-model.trim="proxyAddr" placeholder="http://127.0.0.1:7890 或 socks5://…" /></label>
           <label class="field target-field"><span>测试目标（可选）</span><input v-model.trim="proxyTestTarget" placeholder="默认: https://www.google.com/generate_204" /></label>
@@ -251,10 +229,8 @@
           {{ proxyTestResult.ok ? '连通正常' : ('测试失败：' + (proxyTestResult.error || '未知错误')) }}
         </div>
 
-        <!-- 代理条目（唯一主配置入口）：订阅源 / 播放源 两层 -->
         <div class="proxy-entries-card">
           <h4>代理条目</h4>
-          <p class="panel-sub">添加条目后，命中的订阅源（同步 / 直播）或播放源（探测 / 页面解析 / 封面 / 中转播放）走代理；未添加的均直连。</p>
           <div class="form-row entry-add-row">
             <label class="field"><span>类型</span>
               <select v-model="entryType">
@@ -302,10 +278,8 @@
         </div>
       </section>
 
-      <!-- ============ 分类管理 ============ -->
       <section class="panel" v-if="tab === 'cats'">
         <h3>分类管理</h3>
-        <p class="panel-sub">维护各项目的一级 / 二级分类。拖拽与箭头排序在项目页内操作（自动保存）。</p>
         <div class="form-row">
           <label class="field"><span>新一级分类</span><input v-model.trim="newCat.name" placeholder="分类名" /></label>
           <label class="field"><span>所属项目</span>
@@ -329,10 +303,8 @@
         </div>
       </section>
 
-      <!-- ============ 规则中心 ============ -->
       <section class="panel" v-if="tab === 'rules'">
         <h3>规则中心</h3>
-        <p class="panel-sub">合并 / 转移规则按项目累积存储，每次导入后自动重放；删除规则后，下一次导入将不再应用该规则。</p>
         <div class="rule-list" v-if="rules.length">
           <div class="rule-row" v-for="r in rules" :key="r.id">
             <div class="rule-main">
@@ -346,7 +318,6 @@
         <div class="empty-inline" v-else>暂无规则。在项目页使用"合并 / 批量转移"后会在这里累积。</div>
       </section>
 
-      <!-- ============ 账号安全 ============ -->
       <section class="panel" v-if="tab === 'security'">
         <h3>账号安全</h3>
         <div class="form-grid">
@@ -365,7 +336,6 @@
         </div>
       </section>
 
-      <!-- 版本号：唯一来源为后端 APP_VERSION（/api/stats），前端不自造 -->
       <footer class="version-footer" v-if="store.appVersion">
         当前版本 v{{ store.appVersion }}
       </footer>
@@ -420,7 +390,7 @@ async function loadProxyConfig() {
 }
 
 /* 导入工作台 */
-const imp = reactive({ url: '', data_path: '', use_proxy: '' })
+const imp = reactive({ url: '', data_path: '', use_proxy: false })
 const importResult = ref(null)
 const livePath = ref('')
 const preview = ref(null)
@@ -447,7 +417,7 @@ async function runPreview() {
   preview.value = null
   try {
     const payload = { url: imp.url, data_path: imp.data_path }
-    if (imp.use_proxy !== '') payload.use_proxy = imp.use_proxy === '1'
+    payload.use_proxy = imp.use_proxy
     preview.value = await store.importRemotePreview(payload)
   } catch (e) {
     previewError.value = e.message || '预览拉取失败，请检查地址后重试'
@@ -481,7 +451,7 @@ async function runImport() {
   busy.value = true
   try {
     const payload = { url: imp.url, data_path: imp.data_path }
-    if (imp.use_proxy !== '') payload.use_proxy = imp.use_proxy === '1'
+    payload.use_proxy = imp.use_proxy
     const d = await store.importRemote(payload)
     importResult.value = d
     if (d.ok) {

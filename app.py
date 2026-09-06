@@ -1688,8 +1688,6 @@ def load_settings():
 
 def save_settings(data):
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if "proxy_sources" not in data:
-        data["proxy_sources"] = {"git": True}
     with open(SETTINGS_FILE, "w") as f:
         json.dump(data, f, indent=2)
     os.chmod(SETTINGS_FILE, 0o600)
@@ -5953,6 +5951,17 @@ def _sub_proxy_enabled(config: dict | None, settings: dict) -> bool:
     return False
 
 
+def _sync_sub_proxy_rule(cfg_id, name: str, enabled: bool):
+    """订阅源创建/更新/删除时，联动维护 proxy_rules 中的订阅源条目。"""
+    s = load_settings()
+    rules = _proxy_rules(s)
+    subs = [x for x in rules.get("subs") or [] if str(x.get("id")) != str(cfg_id)]
+    if enabled:
+        subs.append({"id": str(cfg_id), "name": name or ""})
+    s["proxy_rules"] = json.dumps({"subs": subs, "plays": rules.get("plays") or []}, ensure_ascii=False)
+    save_settings(s)
+
+
 def _proxy_pull_enabled(config: dict | None = None, settings: dict | None = None) -> bool:
     """拉取走代理？= 命中订阅源条目，或导入表单的显式开关（列/字段）被勾选。"""
     s = settings if settings is not None else load_settings()
@@ -6776,7 +6785,7 @@ async def admin_create_auto_update(data: dict = Body(...), user_payload=Depends(
              proxy_pull, proxy_play, update_interval, now_iso, now_iso, now_iso),
         )
         db.commit()
-        new_id = cursor.lastrowid
+        _sync_sub_proxy_rule(new_id, name, bool(proxy_pull))
         row = db.execute("SELECT * FROM auto_update_configs WHERE id = ?", (new_id,)).fetchone()
     return {"ok": True, "config": _row_to_dict(row)}
 
@@ -6880,6 +6889,10 @@ async def admin_update_auto_update(config_id: int, data: dict = Body(...), user_
         updated = db.execute(
             "SELECT * FROM auto_update_configs WHERE id = ?", (config_id,)
         ).fetchone()
+        # 源拉取代理开关（第二入口）：联动订阅源代理条目
+        if "proxy_pull" in data:
+            final = updated["proxy_pull"] if updated else data.get("proxy_pull")
+            _sync_sub_proxy_rule(config_id, updated["name"] if updated else "", bool(final))
     return {"ok": True, "config": _row_to_dict(updated)}
 
 
@@ -6910,6 +6923,7 @@ async def admin_delete_auto_update(config_id: int, purge_data: bool = False, use
         db.execute("DELETE FROM auto_update_logs WHERE config_id = ?", (config_id,))
         db.execute("DELETE FROM auto_update_configs WHERE id = ?", (config_id,))
         db.commit()
+    _sync_sub_proxy_rule(config_id, "", False)
     return {"ok": True, "purged": purge_data}
 
 
