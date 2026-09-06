@@ -55,8 +55,6 @@
               <tr>
                 <th style="min-width: 130px;">数据源</th>
                 <th style="width: 75px; text-align: center;">数据量</th>
-                <th style="width: 75px; text-align: center;" title="拉取/更新元数据时是否走代理">拉取代理</th>
-                <th style="width: 75px; text-align: center;" title="视频/直播播放中转时是否走代理">播放代理</th>
                 <th style="width: 75px; text-align: center;" title="最近一次同步状态">同步状态</th>
                 <th style="width: 125px; text-align: right;">操作</th>
               </tr>
@@ -71,20 +69,6 @@
                 </td>
                 <td style="text-align: center;">
                   <span class="item-count-compact">{{ c.item_count != null ? (c.item_count + (c.source_type === 'live' ? ' 频道' : ' 条')) : '-' }}</span>
-                </td>
-                <td style="text-align: center;">
-                  <button type="button" class="proxy-badge-btn" :class="{ active: isPullProxied(c) }"
-                          @click="toggleSourceProxyPull(c)" :disabled="busy"
-                          :title="'点击切换源拉取代理（当前：' + (isPullProxied(c) ? '走代理' : '直连') + '）'">
-                    {{ isPullProxied(c) ? '代理' : '直连' }}
-                  </button>
-                </td>
-                <td style="text-align: center;">
-                  <button type="button" class="proxy-badge-btn play" :class="{ active: isPlayProxied(c) }"
-                          @click="toggleSourceProxyPlay(c)" :disabled="busy"
-                          :title="'点击切换播放代理（当前：' + (isPlayProxied(c) ? '走代理' : '直连') + '）'">
-                    {{ isPlayProxied(c) ? '代理' : '直连' }}
-                  </button>
                 </td>
                 <td style="text-align: center;">
                   <div class="status-indicator-wrap" :title="getStatusTooltip(c)">
@@ -1032,14 +1016,6 @@ onMounted(async () => {
 .type-tag.sm { padding: 1px 5px; font-size: 10.5px; border-radius: 4px; }
 .item-count-compact { font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono); }
 
-.proxy-badge-btn {
-  display: inline-block; padding: 2px 8px; font-size: 11px; font-weight: 600;
-  border-radius: 99px; border: 1px solid var(--border-light); background: var(--bg-card);
-  color: var(--text-muted); cursor: pointer; transition: all 0.15s ease;
-}
-.proxy-badge-btn:hover { border-color: var(--accent); color: var(--accent); }
-.proxy-badge-btn.active { background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.4); color: #3b82f6; }
-.proxy-badge-btn.play.active { background: rgba(168, 85, 247, 0.15); border-color: rgba(168, 85, 247, 0.4); color: #a855f7; }
 
 .status-indicator-wrap { display: inline-flex; align-items: center; gap: 5px; cursor: help; user-select: none; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--text-muted); }
