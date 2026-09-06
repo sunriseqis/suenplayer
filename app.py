@@ -1851,14 +1851,14 @@ def _doh_resolve(host: str, doh_url: str) -> str | None:
     return None
 
 
-def _site_proxy_enabled(url: str, settings: dict) -> bool:
-    """播放源条目：命中关键词（站点名/域名片段）的 URL 服务端请求走代理。
-    未命中 = 直连（本应用不再有全局默认走代理）。"""
+def _site_proxy_enabled(url: str, settings: dict, source_name: str = "") -> bool:
+    """播放源条目：线路的 source 名称（与播放面板显示一致）或 URL 命中
+    播放源条目关键词时，服务端请求走代理。未命中 = 直连。"""
     plays = _proxy_rules(settings).get("plays") or []
-    if not plays or not url:
+    if not plays:
         return False
-    u = url.lower()
-    return any(str(k).lower() in u for k in plays)
+    hay = [ (source_name or "").lower(), (url or "").lower() ]
+    return any(str(k).lower() in h for k in plays for h in hay if h)
 
 
 def _apply_dns_override(url: str, headers: dict, settings: dict):
@@ -5063,12 +5063,12 @@ async def play_probe(target_id: int, target_type: str = "video", request: Reques
         primary, backups, rest = quick.rank_lines(all_results)
 
         _settings_pl = load_settings()
-        def _proxied_for(u: str) -> bool:
-            return bool(_settings_pl.get("proxy", "")) and _site_proxy_enabled(u, _settings_pl)
+        def _proxied_for(u: str, source_name: str = "") -> bool:
+            return bool(_settings_pl.get("proxy", "")) and _site_proxy_enabled(u, _settings_pl, source_name)
 
         def _build_line(result: quick.ProbeResult):
             u = next((x for x in urls if x["url"] == result.url), {})
-            proxied = _proxied_for(result.url)
+            proxied = _proxied_for(result.url, u.get("source", ""))
             return {
                 "url": result.url,
                 "source": u.get("source", ""),
@@ -6723,15 +6723,9 @@ async def admin_proxy_candidates(request: Request = None):
     with get_db() as db:
         subs = [{"id": str(r["id"]), "name": r["name"]}
                 for r in db.execute("SELECT id, name FROM auto_update_configs ORDER BY id").fetchall()]
-        hosts = set()
-        for (u,) in db.execute("SELECT url FROM urls WHERE url LIKE 'http%'"):
-            try:
-                h = _up(u).hostname
-                if h:
-                    hosts.add(h.lower())
-            except Exception:
-                continue
-    return {"subs": subs, "hosts": sorted(hosts)}
+        plays = [r[0] for r in db.execute(
+            "SELECT DISTINCT source FROM urls WHERE source != '' AND source NOT IN ('主源', '清晰度') ORDER BY source").fetchall()]
+    return {"subs": subs, "plays": plays}
 
 
 @app.post("/api/admin/auto-update")

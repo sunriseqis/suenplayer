@@ -264,12 +264,12 @@
             </label>
             <label class="field grow"><span>条目内容</span>
               <select v-model="entryValue">
-                <option value="" disabled>选择在库的{{ entryType === 'sub' ? '订阅源' : '播放源域名' }}…</option>
+                <option value="" disabled>选择在库的{{ entryType === 'sub' ? '订阅源' : '播放源' }}…</option>
                 <template v-if="entryType === 'sub'">
                   <option v-for="c in candidateSubs" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
                 </template>
                 <template v-else>
-                  <option v-for="h in candidateHosts" :key="h" :value="h">{{ h }}</option>
+                  <option v-for="p in candidatePlays" :key="p" :value="p">{{ p }}</option>
                 </template>
               </select>
             </label>
@@ -400,7 +400,7 @@ const proxyRules = ref({ subs: [], plays: [] })
 const entryType = ref('sub')
 const entryValue = ref('')
 const candidateSubs = ref([])
-const candidateHosts = ref([])
+const candidatePlays = ref([])
 
 /* 代理配置加载 */
 async function loadProxyConfig() {
@@ -618,7 +618,7 @@ async function loadProxyCandidates() {
   try {
     const r = await store.fetchProxyCandidates()
     candidateSubs.value = r.subs || []
-    candidateHosts.value = r.hosts || []
+    candidatePlays.value = r.plays || []
   } catch {}
 }
 
