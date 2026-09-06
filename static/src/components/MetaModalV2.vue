@@ -37,7 +37,7 @@
 
       <div class="modal-actions">
         <button class="btn ghost" @click="$emit('close')">取消</button>
-        <button class="btn primary" :disabled="busy || !hasChange" @click="confirm">
+        <button class="btn btn-primary" :disabled="busy || !hasChange" @click="confirm">
           {{ busy ? '保存中…' : '保存覆盖' }}
         </button>
       </div>

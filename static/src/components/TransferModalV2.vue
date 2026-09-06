@@ -40,7 +40,7 @@
 
       <div class="modal-actions">
         <button class="btn ghost" @click="$emit('close')">取消</button>
-        <button class="btn primary" :disabled="!ready || busy" @click="confirm">
+        <button class="btn btn-primary" :disabled="!ready || busy" @click="confirm">
           {{ busy ? '转移中…' : `转移 ${videos.length} 个条目` }}
         </button>
       </div>

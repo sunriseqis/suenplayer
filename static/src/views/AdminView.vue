@@ -21,7 +21,7 @@
               <span class="pending-date" v-if="u.created_at">申请于 {{ u.created_at?.slice(0, 10) }}</span>
             </div>
             <div class="pending-actions">
-              <button class="btn primary sm" :disabled="busy" @click="doApprove(u)">批准</button>
+              <button class="btn btn-primary sm" :disabled="busy" @click="doApprove(u)">批准</button>
               <button class="btn danger sm" :disabled="busy" @click="doReject(u)">拒绝</button>
             </div>
           </div>
@@ -33,7 +33,7 @@
       <section v-if="tab === 'users'">
         <div class="section-head">
           <span>共 {{ users.length }} 个账号</span>
-          <button class="btn primary sm" @click="showCreate = !showCreate">{{ showCreate ? '收起' : '创建账号' }}</button>
+          <button class="btn btn-primary sm" @click="showCreate = !showCreate">{{ showCreate ? '收起' : '创建账号' }}</button>
         </div>
 
         <form class="create-card" v-if="showCreate" @submit.prevent="doCreateUser">
@@ -53,7 +53,7 @@
               <input type="checkbox" :value="p.id" v-model="nu.project_ids" /> {{ p.name }}
             </label>
           </div>
-          <button class="btn primary sm" type="submit" :disabled="busy">创建</button>
+          <button class="btn btn-primary sm" type="submit" :disabled="busy">创建</button>
         </form>
 
         <div class="user-table" v-if="users.length">
@@ -87,7 +87,7 @@
       <section v-if="tab === 'projects'">
         <div class="section-head">
           <span>共 {{ allProjects.length }} 个项目</span>
-          <button class="btn primary sm" @click="showNewProject = !showNewProject">{{ showNewProject ? '收起' : '新建项目' }}</button>
+          <button class="btn btn-primary sm" @click="showNewProject = !showNewProject">{{ showNewProject ? '收起' : '新建项目' }}</button>
         </div>
 
         <form class="create-card" v-if="showNewProject" @submit.prevent="doCreateProject">
@@ -96,7 +96,7 @@
             <label class="field"><span>标识 slug</span><input v-model.trim="np.slug" required placeholder="如：movies" /></label>
             <label class="field"><span>描述</span><input v-model.trim="np.description" placeholder="可选" /></label>
           </div>
-          <button class="btn primary sm" type="submit" :disabled="busy">创建</button>
+          <button class="btn btn-primary sm" type="submit" :disabled="busy">创建</button>
         </form>
 
         <div class="user-table" v-if="allProjects.length">

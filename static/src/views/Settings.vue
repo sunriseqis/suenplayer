@@ -17,8 +17,8 @@
             <p class="panel-sub">管理已导入与已配置的全部影视产物和直播源（共 {{ autoConfigs.length }} 个）。支持按源独立切换「是否启用代理」、一键同步更新，以及删除时联动清理关联数据。</p>
           </div>
           <div class="head-actions">
-            <button class="btn secondary sm" :disabled="busy" @click="loadAuto">刷新列表</button>
-            <button class="btn primary sm" @click="toggleAutoForm">{{ showAutoForm ? '收起表单' : (autoEditing ? '取消编辑' : '新增数据源') }}</button>
+            <button class="btn btn-secondary sm" :disabled="busy" @click="loadAuto">刷新列表</button>
+            <button class="btn btn-primary sm" @click="toggleAutoForm">{{ showAutoForm ? '收起表单' : (autoEditing ? '取消编辑' : '新增数据源') }}</button>
           </div>
         </div>
 
@@ -43,8 +43,8 @@
             </label>
           </div>
           <div class="panel-actions">
-            <button class="btn primary" type="submit" :disabled="busy">{{ autoEditing ? '保存修改' : '保存并添加到数据源' }}</button>
-            <button class="btn secondary" type="button" @click="toggleAutoForm">取消</button>
+            <button class="btn btn-primary" type="submit" :disabled="busy">{{ autoEditing ? '保存修改' : '保存并添加到数据源' }}</button>
+            <button class="btn btn-secondary" type="button" @click="toggleAutoForm">取消</button>
           </div>
         </form>
 
@@ -150,8 +150,8 @@
             </label>
           </div>
           <div class="panel-actions">
-            <button class="btn secondary" :disabled="!imp.url || previewBusy || busy" @click="runPreview">{{ previewBusy ? '预览拉取中…' : '拉取预览' }}</button>
-            <button class="btn primary" :disabled="!preview || busy || previewBusy" @click="runImport">{{ busy ? '导入中…' : '确认无误，执行导入' }}</button>
+            <button class="btn btn-secondary" :disabled="!imp.url || previewBusy || busy" @click="runPreview">{{ previewBusy ? '预览拉取中…' : '拉取预览' }}</button>
+            <button class="btn btn-primary" :disabled="!preview || busy || previewBusy" @click="runImport">{{ busy ? '导入中…' : '确认无误，执行导入' }}</button>
           </div>
           <p class="preview-hint" v-if="preview">预览为只读分析结果，不写入任何数据；确认清单无误后再执行导入。</p>
           <div class="preview-error" v-if="previewError">{{ previewError }}</div>
@@ -232,7 +232,7 @@
             <div class="res-err-item">拉取方式：{{ importResult.method }}（推荐字段缺失时已按三级策略降级处理，不影响导入）</div>
           </div>
           <div class="panel-actions">
-            <button class="btn secondary" @click="tab = 'sources'">前往「数据源管理」查看并管理</button>
+            <button class="btn btn-secondary" @click="tab = 'sources'">前往「数据源管理」查看并管理</button>
           </div>
         </div>
 
@@ -241,7 +241,7 @@
           <h4>服务器本地直播 JSON 导入</h4>
           <div class="form-row">
             <label class="field grow"><span>服务器上的文件路径</span><input v-model.trim="livePath" placeholder="/data/live.json" /></label>
-            <button class="btn primary self-end" :disabled="!livePath || busy" @click="importLive">导入直播源</button>
+            <button class="btn btn-primary self-end" :disabled="!livePath || busy" @click="importLive">导入直播源</button>
           </div>
         </div>
       </section>
@@ -253,8 +253,8 @@
         <div class="form-row">
           <label class="field grow"><span>代理地址</span><input v-model.trim="proxyAddr" placeholder="http://127.0.0.1:7890 或 socks5://…" /></label>
           <label class="field target-field"><span>测试目标（可选）</span><input v-model.trim="proxyTestTarget" placeholder="默认: https://www.google.com/generate_204" /></label>
-          <button class="btn primary self-end" :disabled="busy" @click="saveProxy">保存设置</button>
-          <button class="btn secondary self-end" :disabled="busy" @click="testProxy">{{ testing ? '测试中…' : '测试连通' }}</button>
+          <button class="btn btn-primary self-end" :disabled="busy" @click="saveProxy">保存设置</button>
+          <button class="btn btn-secondary self-end" :disabled="busy" @click="testProxy">{{ testing ? '测试中…' : '测试连通' }}</button>
         </div>
         <div class="form-row">
           <label class="field grow"><span>Git 访问令牌（可选，拉取私有仓库时填写）</span><input v-model.trim="gitToken" type="password" autocomplete="off" placeholder="ghp_… / ghp_xxx，留空表示仅公开仓库" /></label>
@@ -332,7 +332,7 @@
               <option v-for="p in store.projects" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
           </label>
-          <button class="btn primary self-end" :disabled="!newCat.name || busy" @click="createCat">创建</button>
+          <button class="btn btn-primary self-end" :disabled="!newCat.name || busy" @click="createCat">创建</button>
         </div>
         <div class="cat-admin-list" v-if="catTree.length">
           <div class="cat-admin-row" v-for="c in catTree" :key="c.id">
@@ -372,12 +372,12 @@
           <label class="field"><span>修改用户名（当前：{{ store.currentUser?.username }}）</span>
             <input v-model.trim="sec.username" :placeholder="store.currentUser?.username" />
           </label>
-          <button class="btn primary self-end" :disabled="!sec.username || busy" @click="doChangeUsername">更新用户名</button>
+          <button class="btn btn-primary self-end" :disabled="!sec.username || busy" @click="doChangeUsername">更新用户名</button>
         </div>
         <div class="form-grid">
           <label class="field"><span>当前密码</span><input v-model="sec.oldPassword" type="password" /></label>
           <label class="field"><span>新密码（至少 6 位）</span><input v-model="sec.newPassword" type="password" /></label>
-          <button class="btn primary self-end" :disabled="!sec.oldPassword || !sec.newPassword || busy" @click="doChangePassword">修改密码</button>
+          <button class="btn btn-primary self-end" :disabled="!sec.oldPassword || !sec.newPassword || busy" @click="doChangePassword">修改密码</button>
         </div>
         <div class="panel-actions">
           <button class="btn danger" @click="doLogout">退出登录</button>
@@ -971,6 +971,7 @@ onMounted(async () => {
 
 .form-grid { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
 .form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+.form-row .btn { height: 34px; padding: 0 16px; flex-shrink: 0; }
 .field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 180px; }
 .field.grow { flex: 2; }
 .target-field { min-width: 240px; flex: 1.5; }

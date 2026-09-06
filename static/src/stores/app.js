@@ -224,6 +224,10 @@ export const useAppStore = defineStore('app', () => {
     return jfetch(`${API}/fresh-url?url=${encodeURIComponent(url)}`)
   }
 
+  async function createDownload(payload) {
+    return jfetch(`${API}/download`, jbody('POST', payload))
+  }
+
   async function fetchUrls(targetId, targetType = 'video') {
     return jfetch(`${API}/urls?target_id=${targetId}&target_type=${targetType}`)
   }
@@ -550,7 +554,7 @@ export const useAppStore = defineStore('app', () => {
     checkAuth, login, register, logout, changeUsername, changePassword, completeOnboarding,
     fetchProjects, fetchLiveCount, fetchRecentUpdates,
     fetchVideos, fetchSeries, fetchVideo, fetchSeriesDetail, fetchEpisodeDetail,
-    probePlay, switchPlayLine, fetchFreshUrl, fetchUrls, getPlayUrl,
+    probePlay, switchPlayLine, fetchFreshUrl, fetchUrls, getPlayUrl, createDownload,
     fetchLiveGroups, fetchLiveChannels, fetchLiveChannel, switchLiveSource, nextLiveSource,
     fetchCategoryTree, createCategory, updateCategory, deleteCategory, reorderCategories, normalizeCategoryOrder,
     fetchFavorites, addFavorite, removeFavorite, checkFav, toggleFav,

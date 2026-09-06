@@ -61,6 +61,10 @@
             <svg width="16" height="16" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
             {{ isSeries ? '继续观看' : '立即播放' }}
           </button>
+          <button class="btn btn-secondary dl-btn" :disabled="dlBusy" @click="startDownload" title="创建下载任务">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            下载
+          </button>
           <button class="btn btn-secondary" style="width: 120px; height: 44px;" @click="toggleFav">
             <svg width="14" height="14" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" :fill="isFav ? 'var(--accent)' : 'var(--text-secondary)'"/></svg>
             {{ isFav ? '已收藏' : '收藏' }}
@@ -120,7 +124,12 @@
             <img :src="$imgUrl(ep.ep_still)" @error="$imgFallback" loading="lazy" />
           </div>
           <div class="ep-info">
-            <div class="ep-title">{{ epDisplayTitle(ep) }}</div>
+            <div class="ep-title">
+              {{ epDisplayTitle(ep) }}
+              <button class="ep-dl-btn" :disabled="dlBusy" @click.stop="downloadEpisode(ep)" title="下载本集">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
+            </div>
             <div class="ep-meta" v-if="epMeta(ep)">{{ epMeta(ep) }}</div>
             <div class="ep-overview" v-if="ep.ep_overview">{{ ep.ep_overview }}</div>
             <div class="ep-progress" v-if="epProgress[ep.id]">
@@ -260,6 +269,44 @@ const sortedEpisodes = computed(() => {
 // 标题里含数字且与集号矛盾时按集号显示；无数字的标题（“番外篇”等）保留
 function seasonEpCount(s) {
   return s.episodes?.length || s.episode_count || 0
+}
+const dlBusy = ref(false)
+async function startDownload() {
+  if (!item.value || dlBusy.value) return
+  dlBusy.value = true
+  try {
+    const r = await store.createDownload({
+      target_type: isSeries.value ? 'series' : 'video',
+      target_id: item.value.id,
+      bangou: item.value.bangou,
+      project_id: item.value.project_id,
+      title: item.value.title,
+      site: item.value.site || '',
+    })
+    if (r.error) throw new Error(r.error)
+    ui.toast('下载任务已创建，可在「下载任务」页查看进度', 'success')
+    router.push('/downloads')
+  } catch (e) {
+    ui.toast(e.message || '创建下载任务失败', 'error')
+  }
+  dlBusy.value = false
+}
+async function downloadEpisode(ep) {
+  if (dlBusy.value) return
+  dlBusy.value = true
+  try {
+    const r = await store.createDownload({
+      target_type: 'episode',
+      target_id: ep.id,
+      project_id: item.value.project_id,
+      title: `${item.value.title} - ${epDisplayTitle(ep)}`,
+    })
+    if (r.error) throw new Error(r.error)
+    ui.toast(`已创建下载：${epDisplayTitle(ep)}`, 'success')
+  } catch (e) {
+    ui.toast(e.message || '创建下载任务失败', 'error')
+  }
+  dlBusy.value = false
 }
 function epMeta(ep) {
   const parts = []
@@ -520,6 +567,16 @@ async function saveTags() {
 .detail-hero-bg::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent, var(--bg) 92%); }
 .detail { position: relative; }
 .detail .btn-back, .detail-content, .season-section { position: relative; z-index: 1; }
+.dl-btn { height: 44px; }
+.ep-dl-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; margin-left: 6px; padding: 0;
+  border: none; border-radius: var(--radius-sm); background: transparent;
+  color: var(--text-muted); cursor: pointer; vertical-align: middle;
+  opacity: 0; transition: opacity .15s, background .15s, color .15s;
+}
+.episode-item:hover .ep-dl-btn { opacity: 1; }
+.ep-dl-btn:hover { background: var(--bg-input); color: var(--accent); }
 .season-tab-count { margin-left: 6px; font-size: var(--text-xs); opacity: 0.65; font-weight: 400; }
 .meta-link { color: var(--accent); text-decoration: none; word-break: break-all; }
 .meta-link:hover { text-decoration: underline; }

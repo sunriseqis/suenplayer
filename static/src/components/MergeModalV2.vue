@@ -49,7 +49,7 @@
 
       <div class="modal-actions">
         <button class="btn ghost" @click="$emit('close')">取消</button>
-        <button class="btn primary" :disabled="!keeper || busy" @click="confirm">
+        <button class="btn btn-primary" :disabled="!keeper || busy" @click="confirm">
           {{ busy ? '合并中…' : `合并 ${videos.length - 1} 条到 ${keeper || '…'}` }}
         </button>
       </div>

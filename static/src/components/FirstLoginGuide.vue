@@ -38,7 +38,7 @@
       <p v-if="okMsg" class="flg-ok">{{ okMsg }}</p>
 
       <div class="flg-actions">
-        <button class="btn primary" :disabled="busy" @click="submit">
+        <button class="btn btn-primary" :disabled="busy" @click="submit">
           {{ busy ? '提交中…' : '完成修改并继续' }}
         </button>
       </div>
