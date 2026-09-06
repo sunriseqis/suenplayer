@@ -233,7 +233,7 @@
       <!-- ============ 代理 ============ -->
       <section class="panel" v-if="tab === 'proxy'">
         <h3>代理配置</h3>
-        <p class="panel-sub">全局代理服务与双通道开关配置。支持为「源拉取」（Git 克隆、远端元数据抓取）与「流媒体播放」（点播视频代理、直播流代理中转）分别设定默认策略与分源开关。</p>
+        <p class="panel-sub">配置网络代理地址，并添加代理条目（订阅源 / 播放源）：命中的条目走代理，未添加的直连。订阅源条目作用于该源的同步拉取与直播播放；播放源条目作用于命中线路的探测、页面解析、封面与中转播放。</p>
         <div class="form-row">
           <label class="field grow"><span>代理地址</span><input v-model.trim="proxyAddr" placeholder="http://127.0.0.1:7890 或 socks5://…" /></label>
           <label class="field target-field"><span>测试目标（可选）</span><input v-model.trim="proxyTestTarget" placeholder="默认: https://www.google.com/generate_204" /></label>
@@ -947,21 +947,36 @@ onMounted(async () => {
 .field.grow { flex: 2; }
 .target-field { min-width: 240px; flex: 1.5; }
 .field span { font-size: var(--text-base); font-weight: 500; color: var(--text-secondary); }
-.field input, .field select {
-  height: 38px; padding: 0 12px;
+.field input, .field select, .field textarea {
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--bg-input); color: var(--text-primary); font-size: var(--text-base);
   box-sizing: border-box; width: 100%;
   transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
 }
-.field input:focus, .field select:focus {
+.field input, .field select {
+  height: 38px; padding: 0 12px;
+}
+.field textarea {
+  height: auto; min-height: 84px; padding: 10px 12px;
+  line-height: 1.55; resize: vertical;
+  font-family: var(--font-mono); font-size: var(--text-sm);
+}
+.field input:focus, .field select:focus, .field textarea:focus {
   outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(255, 71, 87, 0.18);
 }
-.field input::placeholder {
+.field input::placeholder, .field textarea::placeholder {
   color: var(--text-muted);
   font-size: var(--text-sm);
   opacity: 0.85;
+}
+.entry-add-row input {
+  height: 34px; padding: 0 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light); background: var(--bg-input);
+  color: var(--text-primary); font-size: var(--text-sm); flex: 1; min-width: 0;
+}
+.entry-add-row input:focus {
+  outline: none; border-color: var(--accent);
 }
 .check-field select { min-width: 150px; }
 .check-item { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-base); color: var(--text-secondary); cursor: pointer; height: 38px; }
