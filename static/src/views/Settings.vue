@@ -252,38 +252,53 @@
         </div>
 
         <!-- 代理条目（唯一主配置入口）：订阅源 / 播放源 两层 -->
-        <div class="proxy-entries">
-          <div class="proxy-entries-col">
-            <h4>订阅源条目 <span class="entry-hint">这些订阅源的同步拉取与直播播放走代理</span></h4>
-            <div class="entry-add-row">
-              <select v-model="newSubEntry">
-                <option value="">选择订阅源…</option>
-                <option v-for="c in autoConfigs" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
+        <div class="proxy-entries-card">
+          <h4>代理条目</h4>
+          <p class="panel-sub">添加条目后，命中的订阅源（同步 / 直播）或播放源（探测 / 页面解析 / 封面 / 中转播放）走代理；未添加的均直连。</p>
+          <div class="form-row entry-add-row">
+            <label class="field"><span>类型</span>
+              <select v-model="entryType">
+                <option value="sub">订阅源</option>
+                <option value="play">播放源</option>
               </select>
-              <button class="btn btn-secondary btn-sm" :disabled="!newSubEntry" @click="addSubEntry">添加</button>
-            </div>
-            <ul class="entry-list">
-              <li v-for="s in ruleSubs" :key="s.id || s.name">
-                <span>{{ s.name || ('订阅源 #' + s.id) }}</span>
-                <button class="entry-remove" @click="removeSubEntry(s)" title="移除">✕</button>
-              </li>
-              <li v-if="!ruleSubs.length" class="entry-empty">暂无——默认全部直连</li>
-            </ul>
+            </label>
+            <label class="field grow"><span>条目内容</span>
+              <select v-model="entryValue">
+                <option value="" disabled>选择在库的{{ entryType === 'sub' ? '订阅源' : '播放源域名' }}…</option>
+                <template v-if="entryType === 'sub'">
+                  <option v-for="c in candidateSubs" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
+                </template>
+                <template v-else>
+                  <option v-for="h in candidateHosts" :key="h" :value="h">{{ h }}</option>
+                </template>
+              </select>
+            </label>
+            <button class="btn btn-primary self-end" :disabled="!entryValue" @click="addEntry">添加条目</button>
           </div>
-          <div class="proxy-entries-col">
-            <h4>播放源条目 <span class="entry-hint">命中关键词的播放线路走代理（探测 / 页面解析 / 封面 / 中转播放）</span></h4>
-            <div class="entry-add-row">
-              <input v-model.trim="newPlayEntry" placeholder="站点名或域名片段，如 金鹰 / jinyingimage" @keyup.enter="addPlayEntry" />
-              <button class="btn btn-secondary btn-sm" :disabled="!newPlayEntry" @click="addPlayEntry">添加</button>
-            </div>
-            <ul class="entry-list">
-              <li v-for="k in rulePlays" :key="k">
-                <span>{{ k }}</span>
-                <button class="entry-remove" @click="removePlayEntry(k)" title="移除">✕</button>
-              </li>
-              <li v-if="!rulePlays.length" class="entry-empty">暂无——默认全部直连</li>
-            </ul>
+          <div class="sources-table-wrap" v-if="ruleSubs.length || rulePlays.length">
+            <table class="sources-table compact">
+              <thead>
+                <tr>
+                  <th style="width: 90px;">类型</th>
+                  <th>条目内容</th>
+                  <th style="width: 70px; text-align: right;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="s in ruleSubs" :key="'sub-' + (s.id || s.name)">
+                  <td><span class="type-tag sm sub">订阅源</span></td>
+                  <td>{{ s.name || ('订阅源 #' + s.id) }}</td>
+                  <td style="text-align: right;"><button type="button" class="entry-remove" @click="removeSubEntry(s)">移除</button></td>
+                </tr>
+                <tr v-for="k in rulePlays" :key="'play-' + k">
+                  <td><span class="type-tag sm play-tag">播放源</span></td>
+                  <td>{{ k }}</td>
+                  <td style="text-align: right;"><button type="button" class="entry-remove" @click="removePlayEntry(k)">移除</button></td>
+                </tr>
+              </tbody>
+            </table>
           </div>
+          <p class="entry-empty" v-else>暂无代理条目——默认全部直连</p>
         </div>
       </section>
 
@@ -382,8 +397,10 @@ const tab = ref('sources')
 const busy = ref(false)
 
 const proxyRules = ref({ subs: [], plays: [] })
-const newSubEntry = ref('')
-const newPlayEntry = ref('')
+const entryType = ref('sub')
+const entryValue = ref('')
+const candidateSubs = ref([])
+const candidateHosts = ref([])
 
 /* 代理配置加载 */
 async function loadProxyConfig() {
@@ -597,26 +614,33 @@ const ruleSubs = computed(() => proxyRules.value.subs.map(s => ({
 })))
 const rulePlays = computed(() => proxyRules.value.plays)
 
-function addSubEntry() {
-  const c = autoConfigs.value.find(x => String(x.id) === newSubEntry.value)
-  if (!c) return
-  if (proxyRules.value.subs.some(s => String(s.id) === String(c.id))) {
-    ui.toast('该订阅源已在条目中', 'info'); return
+async function loadProxyCandidates() {
+  try {
+    const r = await store.fetchProxyCandidates()
+    candidateSubs.value = r.subs || []
+    candidateHosts.value = r.hosts || []
+  } catch {}
+}
+
+function addEntry() {
+  if (!entryValue.value) return
+  if (entryType.value === 'sub') {
+    if (proxyRules.value.subs.some(s => String(s.id) === entryValue.value)) {
+      ui.toast('该订阅源条目已存在', 'info'); return
+    }
+    const c = candidateSubs.value.find(x => String(x.id) === entryValue.value)
+    proxyRules.value.subs.push({ id: entryValue.value, name: c?.name || '' })
+  } else {
+    if (proxyRules.value.plays.some(x => x === entryValue.value)) {
+      ui.toast('该播放源条目已存在', 'info'); return
+    }
+    proxyRules.value.plays.push(entryValue.value)
   }
-  proxyRules.value.subs.push({ id: String(c.id), name: c.name })
-  newSubEntry.value = ''
+  entryValue.value = ''
   saveProxy()
 }
 function removeSubEntry(s) {
   proxyRules.value.subs = proxyRules.value.subs.filter(x => String(x.id) !== String(s.id))
-  saveProxy()
-}
-function addPlayEntry() {
-  const k = newPlayEntry.value
-  if (!k) return
-  if (proxyRules.value.plays.some(x => x === k)) { ui.toast('该关键词已在条目中', 'info'); return }
-  proxyRules.value.plays.push(k)
-  newPlayEntry.value = ''
   saveProxy()
 }
 function removePlayEntry(k) {
@@ -890,6 +914,7 @@ watch(tab, (t) => {
 
 onMounted(async () => {
   await loadProxyConfig()
+  await loadProxyCandidates()
   loadAuto()
   if (!store.appVersion) store.fetchStats().catch(() => {})
 })
@@ -1114,4 +1139,14 @@ onMounted(async () => {
   .page-inner { padding: 14px 12px; }
   .self-end { align-self: auto; margin-bottom: 0; }
 }
+.proxy-entries-card { margin-top: var(--space-4); }
+.proxy-entries-card h4 { margin-bottom: 4px; }
+.entry-add-row select { height: 34px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-light); background: var(--bg-input); color: var(--text-primary); }
+.type-tag.sub { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+.type-tag.play-tag { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+.entry-remove {
+  padding: 3px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-light);
+  background: var(--bg-input); color: var(--text-secondary); font-size: var(--text-xs); cursor: pointer;
+}
+.entry-remove:hover { border-color: var(--error); color: var(--error); }
 </style>

@@ -468,6 +468,10 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // ─── 管理端：自动更新 ───────────────────────────────────
+  async function fetchProxyCandidates() {
+    return jfetch(`${API}/admin/proxy-candidates`)
+  }
+
   async function fetchAutoUpdates() {
     const d = await jfetch(`${API}/admin/auto-update`)
     return d.configs || []
@@ -565,7 +569,7 @@ export const useAppStore = defineStore('app', () => {
     fetchAdminUsers, createAdminUser, updateAdminUser, deleteAdminUser,
     fetchPendingUsers, approveUser, rejectUser, fetchUserProjects, assignUserProjects,
     fetchAdminProjects, createProject, updateProject, deleteProject,
-    fetchAutoUpdates, createAutoUpdate, updateAutoUpdate, deleteAutoUpdate, triggerAutoUpdate, fetchAutoUpdateLogs,
+    fetchAutoUpdates, fetchProxyCandidates, createAutoUpdate, updateAutoUpdate, deleteAutoUpdate, triggerAutoUpdate, fetchAutoUpdateLogs,
     fetchAdminSettings, putAdminSettings, importRemote, importRemotePreview, importLiveAdmin,
     downloadApi,
     editMode, selected, selectedSet, isSelected, toggleSelect, clearSelection, toggleEdit

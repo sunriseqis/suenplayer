@@ -6716,6 +6716,24 @@ async def admin_list_auto_updates(user_payload=Depends(require_admin)):
         return {"configs": configs}
 
 
+@app.get("/api/admin/proxy-candidates")
+async def admin_proxy_candidates(request: Request = None):
+    """代理条目候选项：订阅源（auto_update_configs）与播放源（库内线路域名）。"""
+    from urllib.parse import urlparse as _up
+    with get_db() as db:
+        subs = [{"id": str(r["id"]), "name": r["name"]}
+                for r in db.execute("SELECT id, name FROM auto_update_configs ORDER BY id").fetchall()]
+        hosts = set()
+        for (u,) in db.execute("SELECT url FROM urls WHERE url LIKE 'http%'"):
+            try:
+                h = _up(u).hostname
+                if h:
+                    hosts.add(h.lower())
+            except Exception:
+                continue
+    return {"subs": subs, "hosts": sorted(hosts)}
+
+
 @app.post("/api/admin/auto-update")
 async def admin_create_auto_update(data: dict = Body(...), user_payload=Depends(require_admin)):
     name = str(data.get("name") or "").strip()
