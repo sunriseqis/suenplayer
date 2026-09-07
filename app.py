@@ -6473,6 +6473,11 @@ def run_auto_update(config_id: int, config: dict | None = None) -> dict:
 
     log_errors: list[str] = []
     result: dict = {}
+    # 标记为运行中，供前端轮询进度
+    with get_db() as db:
+        db.execute("UPDATE auto_update_configs SET last_status = 'running', updated_at = ? WHERE id = ?",
+                   (datetime.now(timezone.utc).isoformat(), config_id))
+        db.commit()
     try:
         if config.get("is_remote"):
             result = fetch_remote_update(config)
@@ -6753,6 +6758,7 @@ async def admin_create_auto_update(data: dict = Body(...), user_payload=Depends(
              proxy_pull, proxy_play, update_interval, now_iso, now_iso, now_iso),
         )
         db.commit()
+        new_id = cursor.lastrowid
         _sync_sub_proxy_rule(new_id, name, bool(proxy_pull))
         row = db.execute("SELECT * FROM auto_update_configs WHERE id = ?", (new_id,)).fetchone()
     return {"ok": True, "config": _row_to_dict(row)}

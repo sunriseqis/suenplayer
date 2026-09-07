@@ -13,7 +13,7 @@
         </select>
         <!-- C2：一键清理已完成 -->
         <button class="btn btn-secondary btn-sm" @click="clearDone"
-                :disabled="clearing || !items.some(t => row.t.status === 'done')">清理已完成</button>
+                :disabled="clearing || !items.some(t => t.status === 'done')">清理已完成</button>
         <button class="btn btn-secondary btn-sm" @click="refresh" :disabled="loading">刷新</button>
       </div>
     </div>

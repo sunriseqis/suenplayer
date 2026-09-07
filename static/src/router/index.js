@@ -6,7 +6,7 @@ const routes = [
   { path: '/recent', name: 'recent', component: () => import('../views/RecentUpdates.vue') },
   { path: '/project/:id', name: 'project', component: () => import('../views/ProjectView.vue') },
   { path: '/live', name: 'live', component: () => import('../views/LiveView.vue') },
-  { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue') },
+  { path: '/admin', redirect: '/settings' },
   { path: '/video/:bangou', name: 'detail', component: () => import('../views/Detail.vue') },
   { path: '/series/:series_id', name: 'seriesDetail', component: () => import('../views/Detail.vue') },
   { path: '/search', name: 'search', component: () => import('../views/Search.vue') },

@@ -22,6 +22,6 @@ const store = useAppStore()
 
 onMounted(async () => {
   await store.checkAuth()
-  store.fetchAdminSettings().catch(() => {})
+  if (store.isLoggedIn) store.fetchAdminSettings().catch(() => {})
 })
 </script>

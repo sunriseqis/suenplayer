@@ -23,8 +23,15 @@
         <div class="confirm-title">{{ ui.confirmState.title }}</div>
         <div class="confirm-msg">{{ ui.confirmState.message }}</div>
         <div class="confirm-actions">
-          <button class="btn btn-secondary" style="flex:1;height:36px" @click="ui.resolveConfirm(false)">取消</button>
-          <button class="btn btn-primary confirm-ok" style="flex:1;height:36px" @click="ui.resolveConfirm(true)">确定</button>
+          <template v-if="ui.confirmState.actions && ui.confirmState.actions.length">
+            <button v-for="a in ui.confirmState.actions" :key="a.label"
+                    class="btn" :class="a.danger ? 'btn-danger' : (a.kind || 'btn-secondary')"
+                    style="flex:1;height:36px" @click="ui.resolveConfirm(a.value)">{{ a.label }}</button>
+          </template>
+          <template v-else>
+            <button class="btn btn-secondary" style="flex:1;height:36px" @click="ui.resolveConfirm(false)">取消</button>
+            <button class="btn btn-primary confirm-ok" style="flex:1;height:36px" @click="ui.resolveConfirm(true)">确定</button>
+          </template>
         </div>
       </div>
     </div>
@@ -75,4 +82,5 @@ const ui = useUiStore()
 .confirm-title { font-size: var(--text-xl); font-weight: 600; margin-bottom: 8px; }
 .confirm-msg { font-size: var(--text-md); color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px; }
 .confirm-actions { display: flex; gap: 8px; }
+.confirm-actions .btn-danger { background: var(--error); color: #fff; }
 </style>

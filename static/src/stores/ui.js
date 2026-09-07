@@ -26,11 +26,16 @@ export const useUiStore = defineStore('ui', () => {
     setTimeout(() => { themeToast.value = null }, 2000)
   }
 
-  // 确认弹窗：返回 Promise<boolean>
-  const confirmState = ref(null) // { message, resolve, danger }
+  // 确认弹窗：返回 Promise<boolean>；传 actions 时返回所选 action 的 value
+  const confirmState = ref(null) // { message, resolve, danger, title, actions }
   function confirm(message, opts = {}) {
     return new Promise((resolve) => {
-      confirmState.value = { message, resolve, danger: !!opts.danger, title: opts.title || '确认操作' }
+      confirmState.value = {
+        message, resolve,
+        danger: !!opts.danger,
+        title: opts.title || '确认操作',
+        actions: Array.isArray(opts.actions) ? opts.actions : null,
+      }
     })
   }
   function resolveConfirm(val) {

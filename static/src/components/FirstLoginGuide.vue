@@ -15,7 +15,7 @@
         </div>
       </div>
 
-      <div class="flg-form">
+      <form class="flg-form" @submit.prevent="submit">
         <label class="flg-field">
           <span>新用户名</span>
           <input v-model.trim="newUsername" type="text" autocomplete="username" placeholder="输入新的账号名称" />
@@ -32,16 +32,16 @@
           <span>确认新密码</span>
           <input v-model="newPassword2" type="password" autocomplete="new-password" placeholder="再次输入新密码" />
         </label>
-      </div>
 
-      <p v-if="error" class="flg-error">{{ error }}</p>
-      <p v-if="okMsg" class="flg-ok">{{ okMsg }}</p>
+        <p v-if="error" class="flg-error">{{ error }}</p>
+        <p v-if="okMsg" class="flg-ok">{{ okMsg }}</p>
 
-      <div class="flg-actions">
-        <button class="btn btn-primary" :disabled="busy" @click="submit">
-          {{ busy ? '提交中…' : '完成修改并继续' }}
-        </button>
-      </div>
+        <div class="flg-actions">
+          <button class="btn btn-primary" type="submit" :disabled="busy">
+            {{ busy ? '提交中…' : '完成修改并继续' }}
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 </template>

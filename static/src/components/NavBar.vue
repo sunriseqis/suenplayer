@@ -8,7 +8,6 @@
       <router-link v-if="store.hasLive" to="/live" active-class="active">直播</router-link>
       <router-link to="/downloads" active-class="active">下载任务</router-link>
       <router-link to="/settings" active-class="active">项目设置</router-link>
-      <router-link v-if="store.isAdmin" to="/admin" active-class="active">权限管理</router-link>
     </div>
     <div class="nav-right">
       <span v-if="store.currentUser" class="nav-user" :title="store.currentUser.username">
@@ -61,7 +60,6 @@
             <router-link to="/history" @click="menuOpen = false" active-class="active">观看历史</router-link>
             <router-link to="/downloads" @click="menuOpen = false" active-class="active">下载任务</router-link>
             <router-link to="/settings" @click="menuOpen = false" active-class="active">项目设置</router-link>
-            <router-link v-if="store.isAdmin" to="/admin" @click="menuOpen = false" active-class="active">权限管理</router-link>
           </div>
         </div>
       </div>

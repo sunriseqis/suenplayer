@@ -105,8 +105,9 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, onActivated, onDeactivated } from 'vue'
 import { useAppStore } from '../stores/app.js'
 import { useUiStore } from '../stores/ui.js'
-import Hls from 'hls.js'
-import mpegts from 'mpegts.js'
+// 解码引擎按需加载：仅在真正起播直播流时才动态引入 hls.js / mpegts.js
+let Hls = null
+let mpegts = null
 
 defineOptions({ name: 'LiveView' })
 
@@ -233,14 +234,7 @@ const STALL_GRACE_MS = 8000
 // P2-5: 分组切换竞态保护：只接受最后一次请求的响应
 let groupSeq = 0
 
-// P2-7: 无 MSE 环境（iOS Safari 等）下直播链路回退判断
-function hasMseSupport() {
-  return Boolean((Hls && Hls.isSupported()) || (mpegts && mpegts.isSupported()))
-}
-function isNoMseEnv() {
-  if (hasMseSupport()) return false
-  return /iPad|iPhone|iPod|Android|Mobile/i.test(navigator.userAgent) || navigator.maxTouchPoints > 0
-}
+// P2-7: 无 MSE 环境判断已由解码引擎按需加载取代，删除原静态 hasMseSupport/isNoMseEnv 死代码
 
 const currentSource = computed(() => {
   return currentChannel.value?.sources?.[sourceIdx.value] || null
@@ -417,10 +411,15 @@ async function reconnectStream() {
   await playCurrent()
 }
 
+async function ensureEngines() {
+  if (!Hls) Hls = (await import('hls.js')).default
+  if (!mpegts) mpegts = (await import('mpegts.js')).default
+}
+
 function openStream(url) {
-  return new Promise((resolve, reject) => {
-    const video = videoEl.value
-    if (!video) { reject(new Error('no video element')); return }
+  const video = videoEl.value
+  if (!video) return Promise.reject(new Error('no video element'))
+  return ensureEngines().then(() => new Promise((resolve, reject) => {
     destroyPlayer()
     // P2-3: 每次起播重置 hls.js fatal 恢复计数
     hlsNetRetries = 0
@@ -551,7 +550,7 @@ function openStream(url) {
       // P2-7: 无 MSE 且非 HLS（TS 等）——明确提示，不再烧源
       fail(new Error('移动端暂不支持该直播源格式（TS），请使用 HLS(m3u8) 源或桌面浏览器'))
     }
-  })
+  }))
 }
 
 function destroyPlayer() {

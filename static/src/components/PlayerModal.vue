@@ -166,8 +166,10 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useAppStore } from '../stores/app.js'
-import Hls from 'hls.js'
-import mpegts from 'mpegts.js'
+// 解码引擎按需加载：hls.js / mpegts.js 仅在真正起播时才动态引入，
+// 避免把 ~800KB 的 mpegts.js 打进进入播放页的首屏请求
+let Hls = null
+let mpegts = null
 
 const props = defineProps({
   // 本地播放模式（localUrl）下不需要 targetId，在线模式必传
@@ -382,6 +384,16 @@ async function loadVideo(playUrl) {
   hlsNetRetries = 0
   hlsMediaRetries = 0
   clearTimeout(loadTimer)
+
+  // 按需加载解码引擎；失败时给出明确提示而非黑屏
+  try {
+    if (!Hls) Hls = (await import('hls.js')).default
+    if (!mpegts) mpegts = (await import('mpegts.js')).default
+  } catch (e) {
+    playError.value = '播放器组件加载失败，请刷新页面重试'
+    loading.value = false
+    return
+  }
 
   function seekInit() {
     loading.value = false
