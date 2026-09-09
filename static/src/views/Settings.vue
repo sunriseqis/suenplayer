@@ -142,18 +142,22 @@
               </select>
             </label>
             <label class="field grow"><span>条目内容</span>
-              <select v-model="entryValue">
-                <option value="" disabled>选择在库的{{ entryType === 'sub' ? '订阅源' : '播放源' }}…</option>
-                <template v-if="entryType === 'sub'">
+              <template v-if="entryType === 'sub'">
+                <select v-model="entryValue">
+                  <option value="" disabled>选择在库的订阅源…</option>
                   <option v-for="c in candidateSubs" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
-                </template>
-                <template v-else>
+                </select>
+              </template>
+              <template v-else>
+                <input list="proxy-play-candidates" v-model.trim="entryValue" placeholder="选择或直接输入播放源/站点名/域名（如 porn87 或 cdn.domain.com）…" />
+                <datalist id="proxy-play-candidates">
                   <option v-for="p in candidatePlays" :key="p" :value="p">{{ p }}</option>
-                </template>
-              </select>
+                </datalist>
+              </template>
             </label>
             <button class="btn btn-primary self-end" :disabled="!entryValue" @click="addEntry">添加条目</button>
           </div>
+          <p class="proxy-hint" style="margin-top: 6px;">💡 提示：配置代理地址后，封面图片抓取已默认走代理通道，无需手动添加封面域名。</p>
           <div class="sources-table-wrap" v-if="ruleSubs.length || rulePlays.length">
             <table class="sources-table compact">
               <thead>

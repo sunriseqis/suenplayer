@@ -93,7 +93,7 @@ def _is_ip_private(ip) -> bool:
 _ALLOW_PRIVATE_URLS = os.environ.get("ALLOW_PRIVATE_URLS", "0").lower() in ("1", "true", "yes")
 
 
-def _is_private_url(url: str) -> bool:
+def _is_private_url(url: str, skip_dns: bool = False) -> bool:
     try:
         parsed = urllib.parse.urlparse(url)
         host = parsed.hostname
@@ -121,16 +121,17 @@ def _is_private_url(url: str) -> bool:
             return _is_ip_private(ip)
         except ValueError:
             pass
-        try:
-            infos = socket.getaddrinfo(host, None)
-            for info in infos:
-                resolved_ip = ipaddress.ip_address(info[4][0])
-                if resolved_ip.is_loopback or str(resolved_ip) in ("127.0.0.1", "::1", "0.0.0.0", "169.254.169.254"):
-                    return True
-                if not _ALLOW_PRIVATE_URLS and _is_ip_private(resolved_ip):
-                    return True
-        except (OSError, ValueError):
-            pass
+        if not skip_dns:
+            try:
+                infos = socket.getaddrinfo(host, None)
+                for info in infos:
+                    resolved_ip = ipaddress.ip_address(info[4][0])
+                    if resolved_ip.is_loopback or str(resolved_ip) in ("127.0.0.1", "::1", "0.0.0.0", "169.254.169.254"):
+                        return True
+                    if not _ALLOW_PRIVATE_URLS and _is_ip_private(resolved_ip):
+                        return True
+            except (OSError, ValueError):
+                pass
         return False
     except ValueError:
         return False
@@ -1923,8 +1924,10 @@ async def image_cache(url: str):
     # DNS 覆盖（hosts 映射 / DoH）先于私有地址检查：被污染域名系统解析可能
     # 指向私有/保留地址，若管理员已显式映射则信任映射、跳过该检查
     _settings0 = load_settings()
+    proxy_url = (_settings0.get("proxy") or "").strip()
+    is_proxied = bool(proxy_url)
     _check_url, _, _pinned0 = _apply_dns_override(url, {}, _settings0)
-    if not _pinned0 and _is_private_url(_check_url):
+    if not _pinned0 and _is_private_url(_check_url, skip_dns=is_proxied):
         return JSONResponse({"error": "private url not allowed"}, status_code=400)
     key = hashlib.sha256(url.encode()).hexdigest()[:16]
     ext = Path(url.split("?")[0]).suffix or ".jpg"
@@ -1932,8 +1935,6 @@ async def image_cache(url: str):
     if cache_path.exists():
         return Response(cache_path.read_bytes(), media_type=f"image/{ext.lstrip('.')}")
 
-    settings = load_settings()
-    proxy_url = settings.get("proxy", "")
     try:
         parts = url.split("//", 1)[1]
         host = parts.split("/", 1)[0]
@@ -1948,27 +1949,46 @@ async def image_cache(url: str):
     }
 
     async def try_fetch():
-        proxies = None
-        if proxy_url and _site_proxy_enabled(url, _settings0):
-            proxies = {"http": proxy_url, "https": proxy_url}
         req_url, req_headers, pinned = _apply_dns_override(url, headers, _settings0)
 
-        def _fetch():
-            if pinned:
-                sess = requests.Session()
-                sess.mount(f"https://", _PinnedHostAdapter(pinned))
-                return sess.get(req_url, headers=req_headers, timeout=(5, 12), verify=_REQUESTS_VERIFY)
-            return _requests_get_safe_redirects(req_url, headers=req_headers, proxies=proxies, timeout=(5, 12), verify=_REQUESTS_VERIFY)
+        def _fetch(proxies_to_use, verify_flag=_REQUESTS_VERIFY):
+            try:
+                if pinned:
+                    sess = requests.Session()
+                    sess.mount("https://", _PinnedHostAdapter(pinned))
+                    if proxies_to_use:
+                        sess.proxies.update(proxies_to_use)
+                    return sess.get(req_url, headers=req_headers, timeout=(5, 12), verify=verify_flag)
+                return _requests_get_safe_redirects(req_url, headers=req_headers, proxies=proxies_to_use, timeout=(5, 12), verify=verify_flag)
+            except requests.exceptions.SSLError:
+                if verify_flag:
+                    return _fetch(proxies_to_use, verify_flag=False)
+                raise
 
+        # 1. 若配置了代理，优先使用代理拉取
+        if proxy_url:
+            px = {"http": proxy_url, "https": proxy_url}
+            try:
+                r = await asyncio.to_thread(_fetch, px)
+                if r.status_code == 200 and r.content:
+                    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                    content = await asyncio.to_thread(_optimize_image_bytes, r.content, ext)
+                    await asyncio.to_thread(cache_path.write_bytes, content)
+                    return Response(content, media_type=f"image/{ext.lstrip('.')}")
+            except Exception as e:
+                print(f"[cache-proxy] {url.split('/')[-1][:30]} failed: {e}", flush=True)
+
+        # 2. 直连尝试（未配代理，或代理失败后的回退）
         try:
-            r = await asyncio.to_thread(_fetch)
+            r = await asyncio.to_thread(_fetch, None)
             if r.status_code == 200 and r.content:
                 CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 content = await asyncio.to_thread(_optimize_image_bytes, r.content, ext)
                 await asyncio.to_thread(cache_path.write_bytes, content)
                 return Response(content, media_type=f"image/{ext.lstrip('.')}")
         except Exception as e:
-            print(f"[cache] {url.split('/')[-1][:30]} failed: {e}", flush=True)
+            print(f"[cache-direct] {url.split('/')[-1][:30]} failed: {e}", flush=True)
+
         return None
 
     for attempt in range(3):
@@ -1976,7 +1996,7 @@ async def image_cache(url: str):
         if resp:
             return resp
         if attempt < 2:
-            await asyncio.sleep(3)
+            await asyncio.sleep(2)
 
     return JSONResponse({"error": "fetch failed"}, status_code=404)
 
@@ -2062,6 +2082,7 @@ def _proxy_headers():
 
 def _requests_get_safe_redirects(url: str, max_redirects: int = 5, allow_private: bool = False, **kwargs):
     current_url = url
+    is_proxied = bool(kwargs.get("proxies"))
     for _ in range(max_redirects):
         resp = requests.get(current_url, allow_redirects=False, **kwargs)
         if resp.status_code in (301, 302, 303, 307, 308):
@@ -2069,7 +2090,7 @@ def _requests_get_safe_redirects(url: str, max_redirects: int = 5, allow_private
             if not location:
                 raise requests.exceptions.RequestException("重定向缺少 Location")
             current_url = urllib.parse.urljoin(current_url, location)
-            if not allow_private and _is_private_url(current_url):
+            if not allow_private and _is_private_url(current_url, skip_dns=is_proxied):
                 raise requests.exceptions.RequestException("重定向到私有地址被拒绝")
             continue
         return resp
@@ -6700,13 +6721,59 @@ async def admin_list_auto_updates(user_payload=Depends(require_admin)):
 
 @app.get("/api/admin/proxy-candidates")
 async def admin_proxy_candidates(request: Request = None):
-    """代理条目候选项：订阅源（auto_update_configs）与播放源（库内线路域名）。"""
+    """代理条目候选项：订阅源（auto_update_configs）与播放源（库内线路名称、采集站点名、流域名、直播源）。"""
     from urllib.parse import urlparse as _up
     with get_db() as db:
         subs = [{"id": str(r["id"]), "name": r["name"]}
                 for r in db.execute("SELECT id, name FROM auto_update_configs ORDER BY id").fetchall()]
-        plays = [r[0] for r in db.execute(
-            "SELECT DISTINCT source FROM urls WHERE source != '' AND source NOT IN ('主源', '清晰度') ORDER BY source").fetchall()]
+
+        play_set = set()
+
+        # 1. urls 表中的自定义线路名称（排除主源/清晰度等无区分度的通用词）
+        for r in db.execute("SELECT DISTINCT source FROM urls WHERE source != ''").fetchall():
+            s = (r[0] or "").strip()
+            if s and s not in ("主源", "清晰度", "默认", "备用线路"):
+                play_set.add(s)
+
+        # 2. videos 和 series 表中的采集站点 site（如 porn87, 索尼线路, 红牛资源 等）
+        for tbl in ("videos", "series"):
+            for r in db.execute(f"SELECT DISTINCT site FROM {tbl} WHERE site IS NOT NULL AND site != ''").fetchall():
+                st = (r[0] or "").strip()
+                if st:
+                    play_set.add(st)
+
+        # 3. 从 urls 表的所有流地址中提取域名（包括单主源视频的 CDN 域名）
+        for r in db.execute("SELECT DISTINCT url FROM urls WHERE url != ''").fetchall():
+            u = (r[0] or "").strip()
+            try:
+                host = (_up(u).hostname or "").strip().lower()
+                if host and host not in ("localhost", "127.0.0.1", "0.0.0.0"):
+                    play_set.add(host)
+            except Exception:
+                pass
+
+        # 4. 直播源相关域名与发生器
+        try:
+            for r in db.execute("SELECT DISTINCT source_generator FROM live_channels WHERE source_generator IS NOT NULL AND source_generator != ''").fetchall():
+                sg = (r[0] or "").strip()
+                if sg:
+                    play_set.add(sg)
+            for r in db.execute("SELECT DISTINCT url FROM live_channel_sources WHERE url != ''").fetchall():
+                lu = (r[0] or "").strip()
+                try:
+                    host = (_up(lu).hostname or "").strip().lower()
+                    if host and host not in ("localhost", "127.0.0.1", "0.0.0.0"):
+                        play_set.add(host)
+                except Exception:
+                    pass
+            for r in db.execute("SELECT DISTINCT isp FROM live_channel_sources WHERE isp IS NOT NULL AND isp != ''").fetchall():
+                isp = (r[0] or "").strip()
+                if isp:
+                    play_set.add(isp)
+        except Exception:
+            pass
+
+        plays = sorted(list(play_set), key=lambda x: (len(x.split('.')), x))
     return {"subs": subs, "plays": plays}
 
 
